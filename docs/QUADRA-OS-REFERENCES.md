@@ -148,39 +148,50 @@ A living checklist. "Must have" = baseline goal for the OS; "Should have" = high
 ## 7. QUADRA-OS build status (2026-11-22)
 
 The reference video/site promise a full GUI desktop. What has been built
-so far (in this sandbox — no QEMU / GUI host available):
+so far (in this sandbox — no QEMU host available, but the desktop shell
+is verified via headless PNG snapshots):
 
 ### Built
 - [x] **Linux 7.3.0** x86_64 kernel (`bzImage`, `CONFIG_MODULES=n`) —
-  `dist/bzImage` (~14 MB). Built from `build/linux/`; full compile +
-  objtool pass + link succeeded (2026-11-22).
-- [x] **BusyBox 1.36.1 initramfs** (~1.1 MB compressed) — `/init` script +
-  ~90 applet symlinks + QUADRA-OS branding (motd, wallpaper, cover) —
-  `dist/initramfs.cpio.gz`. Verified: extracts cleanly, boots to banner
-  + root shell (sandbox smoke test).
+  `dist/bzImage` (~14 MB). Full compile + objtool pass + link succeeded;
+  **framebuffer enabled** (`CONFIG_FB=y`, `CONFIG_FB_VESA=y`) for the
+  native desktop.
+- [x] **quadra-desktop** — static C framebuffer desktop shell (~1 MB),
+  drawn with the Linux kernel's 8x8 bitmap font (extracted from
+  `lib/fonts/font_8x8.c` — GPL-2.0). Wallpaper (gradient + aurora blobs
+  + subtle grid), top bar (QUADRA-OS logo, live clock, battery, date),
+  bottom dock (6 apps), window manager (open/focus/close/Tab cycles),
+  and real interactive apps:
+  - **Terminal** — live shell (fork/exec + pipe-capture + scrollback)
+  - **Files** — keyboard-navigable listing with breadcrumb + status bar
+  - **Task Manager** — live memory/load/CPU from /proc with bars
+  - **Settings** — grid toggle, brightness, interface scale
+  - **About** — brand + build info
+  Headless mode (`--png OUT [STATE]`) renders static 800×480 snapshots;
+  verified to produce correct PNG output for all six states.
+- [x] **BusyBox 1.36.1 initramfs** (~1.6 MB compressed) — `/init` script
+  (execs `/bin/quadra-desktop`, falls back to `/bin/sh -l`), ~90 applet
+  symlinks, QUADRA-OS branding, static `quadra-desktop` — `dist/initramfs.cpio.gz`.
 - [x] **Boot reference** — `dist/boot.sh` (QEMU/GRUB/EFI paths) +
   `README.md`.
 
-### Not built yet (needs bigger toolchain / QEMU host)
-- [ ] **GUI desktop** — top bar, dock, Start menu, Launchpad,
-  Lock screen, Control Center, Task Manager, Settings, Files (these are
-  the reference experience). Not a web/HTML mock — requires a real window
-  manager + compositor. Planned as Phase 2 (after kernel/initramfs are
-  verified bootable with QEMU).
+### Still missing (needs QEMU / larger toolchain)
+- [ ] **Live framebuffer boot** — the fb0 code path (mmap + bitfield
+  blit + evdev keyboard) is written but cannot be exercised in this
+  sandbox (no display, no QEMU). Must be verified in a real boot.
 - [ ] **App worlds** — Windows (Wine/Proton), Android (Waydroid),
-  macOS (Darling), Linux native — deferred until the GUI exists.
-- [ ] **Desktop wallpapers / Splash** — 5 wallpapers + 3 covers + 4
-  photos exist in `assets/`; the aurora wallpaper is bundled as
-  `/usr/share/quadra-os/brand/wallpaper-aurora.jpg` in the initramfs.
-- [ ] **Installer image** — not produced (needs a bootloader + QEMU-style
-  test target, or a hosted installer VM).
+  macOS (Darling) — still design targets; need a much larger toolchain.
+- [ ] **Persistent rootfs** — boots via initramfs; a real rootfs can be
+  layered on later.
+- [ ] **Installer image** — not produced yet.
+- [ ] **Start menu search filtering** — currently accepts typing but
+  does not filter the grid (keyboard-only).
+- [ ] **Lock screen, Control Center, Launchpad 3D-style grid, Dynamic
+  island, desktop watermark** — design targets from the reference video.
 
 ### Known build limitations
 - Signature enforcement is stubbed (`certs/system_certificates.o` is an
   empty stub, no openssl in this environment). Disable or re-generate
   real certs for production.
-- Kernel is built against an empty `certs/` (system_certificates.S
-  references `signing_key.x509` / `x509_certificate_list` — both empty
-  stubs).
-- No graphical environment / desktop session has been built. This is a
-  **kernel + initramfs** reference build, not a distro image.
+- The desktop shell is written for /dev/fb0 + evdev; it is not
+  exercised against a live framebuffer in this environment.
