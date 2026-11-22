@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="dark light" />
+  <title>QUADRA-OS</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='5' y='5' width='25' height='25' rx='8' fill='%23ff6e8a'/%3E%3Crect x='34' y='5' width='25' height='25' rx='8' fill='%23e01e48'/%3E%3Crect x='5' y='34' width='25' height='25' rx='8' fill='%23a81336'/%3E%3Crect x='34' y='34' width='25' height='25' rx='8' fill='%23ff8a5c'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/windows.css" />
+  <link rel="stylesheet" href="css/apps.css" />
+</head>
+<body>
+  <div id="os-root">
+
+    <div id="wallpaper" aria-hidden="true">
+      <div id="wallpaper-img"></div>
+      <div id="wallpaper-scrim"></div>
+    </div>
+
+    <main id="desktop" aria-label="Desktop"></main>
+
+    <div id="windows" aria-label="Windows"></div>
+
+    <div id="dim-layer" aria-hidden="true"></div>
+
+    <header id="topbar" role="banner"></header>
+
+    <div id="island" role="status" aria-live="polite"></div>
+
+    <div id="start-menu" role="menu" aria-label="Start menu"></div>
+
+    <div id="control-center" role="dialog" aria-label="Control Center"></div>
+
+    <div id="dock" role="toolbar" aria-label="Dock"></div>
+
+    <div id="context-menu" role="menu" hidden></div>
+
+    <div id="switcher" hidden></div>
+
+    <div id="toast-root" aria-live="polite"></div>
+
+    <div id="snap-ghost" aria-hidden="true" hidden></div>
+
+    <div id="boot-screen" aria-hidden="true">
+      <div class="boot-inner">
+        <div class="boot-logo" id="boot-logo"></div>
+        <div class="boot-name">QUADRA&#8202;-&#8202;OS</div>
+        <div class="boot-progress"><div class="boot-progress-fill" id="boot-progress-fill"></div></div>
+        <div class="boot-status" id="boot-status">Starting up…</div>
+      </div>
+    </div>
+
+    <div id="lock-screen" aria-hidden="true" hidden>
+      <div class="lock-bg"></div>
+      <div class="lock-inner">
+        <div class="lock-time" id="lock-time">09:41</div>
+        <div class="lock-date" id="lock-date">Tuesday, 22 November</div>
+        <div class="lock-hint" id="lock-hint">Click or press any key to sign in</div>
+      </div>
+    </div>
+
+    <div id="power-screen" aria-hidden="true" hidden>
+      <div class="power-inner" id="power-inner"></div>
+    </div>
+
+  </div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

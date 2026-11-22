@@ -1,0 +1,44 @@
+#!/bin/sh
+# /init — QUADRA-OS boot init (initramfs)
+# BusyBox-based minimal init; mounts pseudo-filesystems and spawns a shell.
+
+# Frame buffer: /dev/console is the kernel console
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin
+export TERM=linux
+export HOME=/root
+export PS1='QUADRA-OS:\$ '
+
+# Mount pseudo-filesystems (mount points live in the initramfs root)
+mount -t proc proc /proc 2>/dev/null
+mount -t sysfs sysfs /sys 2>/dev/null
+mount -t tmpfs tmpfs /tmp 2>/dev/null
+
+# Set hostname
+hostname "$(cat /etc/hostname 2>/dev/null || echo quadra-os)" 2>/dev/null
+
+# Brand — banner (ASCII-safe; no backticks or pipes inside double quotes)
+cat /etc/motd 2>/dev/null
+echo
+echo "  ____            _   _"
+echo " |  _ \   ___ | |_| |_ __ _ ___ _ __"
+echo " | |_) | / _  | __| __| '__| '_  | '_ \\ \\ / _ \\"
+echo " |  __/| (_| | |_| |_| |  | |_) | |_| | ___/  "
+echo " |_|   \\__,_|\\__|\\__|_|  |_.__|_.__|\\___"
+echo
+echo "           Q U A D R A   O S   v1.0"
+echo "        $(uname -r 2>/dev/null)  $(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)"
+echo
+
+# Memory + disk summary
+echo "== Resources =="
+free -h 2>/dev/null | head -3
+echo
+
+# Console
+echo "== Console =="
+echo "  tty1: QUADRA-OS root shell"
+echo "  Try:  ls /etc   free -h   df -h   uname -a   dmesg"
+echo
+
+# Keep a root shell on the console
+exec /bin/sh -l
