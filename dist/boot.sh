@@ -54,4 +54,7 @@ test -f "$INITRD"  && echo "  ✓ initrd  $INITRD"  || { echo "  ✗ initrd  $IN
 
 echo
 echo "Launching with: $QEMU"
-exec "$QEMU" -kernel "$KERNEL" -initrd "$INITRD" -m 1G -nographic -append "console=ttyS0"
+# -cpu max: the default qemu64 CPU model lacks instructions the 7.3 kernel
+# uses and triple-faults, so always ask for the full emulated CPU.
+exec "$QEMU" -cpu max -kernel "$KERNEL" -initrd "$INITRD" -m 1G -nographic \
+     -append "console=ttyS0"

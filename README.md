@@ -38,26 +38,55 @@ A modern, lean, low-end-PC-friendly OS built from a real Linux 7.3 kernel
 
 | File | What it is |
 | --- | --- |
-| `dist/bzImage` | Bootable Linux 7.3.0 x86_64 kernel with framebuffer (~13.6 MB) |
-| `dist/initramfs.cpio.gz` | BusyBox + quadra-desktop + brand assets initramfs (~5.7 MB compressed) |
-| `dist/QUADRA-OS.iso` | ISO9660/Joliet data image with kernel, initramfs, desktop, brand assets and boot config (~25 MB) |
+| `dist/bzImage` | Bootable Linux 7.3.0 x86_64 kernel with framebuffer + initrd support (~14.7 MB) |
+| `dist/initramfs.cpio.gz` | BusyBox + quadra-desktop + brand assets initramfs (~5.8 MB compressed) |
+| `dist/QUADRA-OS.iso` | **Bootable hybrid ISO (BIOS + UEFI)** built with GRUB, kernel + initramfs included (~33 MB) |
 | `installer/Install-QUADRA-OS.sh` | Linux installer (staged install, checksums, config, GRUB entry) |
 | `installer/Install-QUADRA-OS.ps1` | Windows installer (installs to `C:\QUADRA-OS`) |
 | `installer/QUADRA-OS-Installer.cmd` | Windows one-click launcher |
 | `desktop/quadra-desktop` | Static framebuffer desktop shell (~940 KB) |
 
+## Verified build
+
+The `Build QUADRA-OS image` workflow (`.github/workflows/build-image.yml`)
+does the whole thing on a clean Ubuntu runner and **boots the result**:
+
+1. compiles Linux 7.3 (`v7.3`, x86_64, `CONFIG_MODULES=n`, framebuffer,
+   devtmpfs, initrd, EFI stub),
+2. builds the static desktop shell and packs the initramfs,
+3. builds a hybrid GRUB ISO (BIOS El Torito + UEFI),
+4. boots *both* the raw kernel and the ISO in QEMU, and
+5. fails the job unless the QUADRA-OS init banner appears on the serial
+   console — artefacts and checksums are then attached to the GitHub
+   Release.
+
+Download the released `bzImage`, `initramfs.cpio.gz` and `QUADRA-OS.iso`
+from the repository's **Releases** page.
+
 ## Boot instructions
 
-### With QEMU (real boot)
+### With QEMU (real boot, no USB needed)
 
 ```sh
-qemu-system-x86_64 \
+qemu-system-x86_64 -cpu max \
   -kernel dist/bzImage \
   -initrd dist/initramfs.cpio.gz \
-  -m 1G \
-  -nographic \
+  -m 1G -nographic \
   -append "console=ttyS0"
 ```
+
+`-cpu max` matters: the default `qemu64` CPU model is missing instructions
+the 7.3 kernel uses and it triple-faults on boot.
+
+### From the ISO (USB or virtual machine)
+
+```sh
+qemu-system-x86_64 -cpu max -m 2G -cdrom QUADRA-OS.iso     # BIOS or UEFI
+```
+
+or write `QUADRA-OS.iso` to a USB stick with Rufus / balenaEtcher / `dd`
+and boot it with UEFI (Secure Boot must be off). The ISO contains GRUB,
+the kernel and the initramfs, so it needs no extra bootloader.
 
 ### With GRUB 2
 
@@ -67,8 +96,8 @@ Copy `dist/bzImage` → `/boot/quadra-os/vmlinuz` and
 
 ```
 menuentry "QUADRA-OS" {
-  linux  /vmlinuz root=/dev/ram0 console=ttyS0 fb=y
-  initrd /initramfs.cpio.gz
+  linux  /boot/quadra-os/vmlinuz root=/dev/ram0 console=tty0 console=ttyS0
+  initrd /boot/quadra-os/initramfs.cpio.gz
 }
 ```
 

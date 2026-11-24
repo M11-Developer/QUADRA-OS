@@ -152,8 +152,9 @@ A living checklist. "Must have" = baseline goal for the OS; "Should have" = high
 ## 7. QUADRA-OS build status (2026-11-22)
 
 The reference video/site promise a full GUI desktop. What has been built
-so far (in this sandbox — no QEMU host available, but the desktop shell
-is verified via headless PNG snapshots):
+so far. The kernel, initramfs and ISO are now built and boot-tested in CI
+(GitHub Actions + QEMU); the desktop shell is additionally verified
+through headless PNG snapshots:
 
 ### Built
 - [x] **Linux 7.3.0** x86_64 kernel (`bzImage`, `CONFIG_MODULES=n`) —
@@ -161,8 +162,8 @@ is verified via headless PNG snapshots):
   **framebuffer enabled** (`CONFIG_FB=y`, `CONFIG_FB_VESA=y`) for the
   native desktop.
 - [x] **quadra-desktop** — static C framebuffer desktop shell (~1 MB),
-  drawn with the Linux kernel's 8x8 bitmap font (extracted from
-  `lib/fonts/font_8x8.c` — GPL-2.0). Wallpaper (gradient + aurora blobs
+  drawn with a public-domain 8x8 bitmap font (`dhepper/font8x8`, based on
+  the IBM PC BIOS charset). No GPL font data is linked into the shell. Wallpaper (gradient + aurora blobs
   + subtle grid), top bar (QUADRA-OS logo, live clock, battery, date),
   bottom dock (6 apps), window manager (open/focus/close/Tab cycles),
   and real interactive apps:

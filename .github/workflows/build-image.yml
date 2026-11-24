@@ -248,8 +248,8 @@ jobs:
             boot-iso.log
             build/preview/ci-desktop.png
 
-      - name: Publish failure diagnostics
-        if: failure()
+      - name: Publish build evidence
+        if: always()
         run: |
           mkdir -p ci-logs
           tail -400 ci.log > ci-logs/last.log 2>/dev/null || true
@@ -264,6 +264,7 @@ jobs:
           git -c user.name="M-Eleven CI" -c user.email="ma7292537@gmail.com" \
             commit -q -m "CI diagnostics for run $GITHUB_RUN_ID" || true
           git push -f "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" HEAD:ci-logs
+          echo "evidence pushed to the ci-logs branch"
 
       - name: Attach to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
