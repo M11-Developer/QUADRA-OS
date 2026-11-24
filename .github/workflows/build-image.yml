@@ -161,20 +161,22 @@ jobs:
           fi
 
           echo "--- QUADRA kernel, serial written to a file ---"
-          timeout 60 qemu-system-x86_64 -kernel dist/bzImage \
+          # keep stdin open: QEMU quits when a stdio chardev hits EOF
+          ( sleep 45 ) | timeout 60 qemu-system-x86_64 -kernel dist/bzImage \
             -append "console=ttyS0,115200 earlyprintk=serial ignore_loglevel" \
-            -display none -serial file:serial.log -m 512 -no-reboot < /dev/null
+            -display none -serial file:serial.log -monitor none -m 512 -no-reboot
           echo "serial.log bytes: $(wc -c < serial.log)"
           head -30 serial.log
 
       - name: Boot test — kernel + initramfs (serial console)
         run: |
           set +e
-          printf 'uname -a\ncat /etc/quadra-os/credits\nexit\n' | \
-            timeout 120 qemu-system-x86_64 \
+          # stdin stays open for the whole run (a stdio EOF makes QEMU quit)
+          ( sleep 20; printf 'uname -a\ncat /etc/quadra-os/credits\nexit\n'; sleep 90 ) | \
+            timeout 150 qemu-system-x86_64 \
               -kernel dist/bzImage -initrd dist/initramfs.cpio.gz \
               -append "console=ttyS0,115200 earlyprintk=serial,ttyS0,115200 ignore_loglevel panic=1" \
-              -m 512 -nographic -no-reboot \
+              -m 512 -nographic -monitor none -no-reboot \
               > boot-direct.log 2>&1
           grep -aq "QUADRA-OS" boot-direct.log && echo "BOOT OK: QUADRA-OS banner seen"
           tail -40 boot-direct.log
@@ -182,9 +184,9 @@ jobs:
       - name: Boot test — bootable ISO (BIOS/GRUB)
         run: |
           set +e
-          printf 'uname -a\nexit\n' | \
-            timeout 240 qemu-system-x86_64 \
-              -cdrom dist/QUADRA-OS.iso -m 512 -nographic -no-reboot \
+          ( sleep 25; printf 'uname -a\nexit\n'; sleep 150 ) | \
+            timeout 210 qemu-system-x86_64 \
+              -cdrom dist/QUADRA-OS.iso -m 512 -nographic -monitor none -no-reboot \
               > boot-iso.log 2>&1
           grep -aq "QUADRA-OS" boot-iso.log && echo "ISO BOOT OK: QUADRA-OS banner seen"
           tail -40 boot-iso.log
