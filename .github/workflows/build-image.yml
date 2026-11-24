@@ -1,0 +1,181 @@
+name: Build QUADRA-OS image
+
+# Builds the real artefacts — Linux kernel, initramfs, desktop shell and a
+# bootable GRUB ISO — then boots them under QEMU so the build proves itself.
+#
+# All Credits go to : M-Eleven — Mohamed El-Sayed Abdelfatah
+# https://github.com/M11-Developer  ·  MIT (see LICENSE / CREDITS.md)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  KERNEL_TAG: v7.3
+
+jobs:
+  build:
+    name: Kernel + initramfs + bootable ISO
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential bc bison flex libssl-dev libelf-dev cpio \
+            qemu-system-x86 xorriso grub-pc-bin grub-efi-amd64-bin mtools \
+            dosfstools file
+
+      - name: Attribution check
+        run: sh tools/verify-credits.sh
+
+      - name: Build the desktop shell (static)
+        run: |
+          gcc -O2 -static -Wall -Wextra -o desktop/quadra-desktop desktop/quadra-desktop.c -lm
+          cp desktop/quadra-desktop rootfs/bin/quadra-desktop
+          ./desktop/quadra-desktop --png build/preview/ci-desktop.png 0 | tail -1
+
+      - name: Cache Linux source
+        uses: actions/cache@v4
+        with:
+          path: linux-${{ env.KERNEL_TAG }}
+          key: linux-src-${{ env.KERNEL_TAG }}
+
+      - name: Fetch Linux ${{ env.KERNEL_TAG }}
+        run: |
+          if [ ! -d "linux-${KERNEL_TAG}" ]; then
+            curl -fsSL --retry 3 "https://codeload.github.com/torvalds/linux/tar.gz/refs/tags/${KERNEL_TAG}" -o linux.tar.gz
+            tar xzf linux.tar.gz
+          fi
+          ls -d linux-*
+
+      - name: Configure the kernel
+        run: |
+          cd "linux-${KERNEL_TAG}"
+          make defconfig
+          scripts/config --file .config \
+            -d MODULES \
+            -e DEVTMPFS -e DEVTMPFS_MOUNT \
+            -e BLK_DEV_INITRD -e RD_GZIP \
+            -e FB -e FB_VESA -e FRAMEBUFFER_CONSOLE \
+            -e VT -e VT_CONSOLE \
+            -e INPUT -e INPUT_EVDEV -e INPUT_KEYBOARD -e INPUT_MOUSE \
+            -e KEYBOARD_ATKBD -e MOUSE_PS2 \
+            -e EFI -e EFI_STUB \
+            -e TMPFS -e PROC_FS -e SYSFS -e UNIX -e SHMEM \
+            -e SERIAL_8250 -e SERIAL_8250_CONSOLE -e TTY \
+            -e BINFMT_ELF -e FUTEX -e EPOLL -e SIGNALFD -e TIMERFD -e EVENTFD
+          make olddefconfig
+          grep -E "CONFIG_(FB_VESA|DEVTMPFS_MOUNT|FRAMEBUFFER_CONSOLE|EFI_STUB|BLK_DEV_INITRD|MODULES)=" .config
+
+      - name: Build the kernel
+        run: |
+          cd "linux-${KERNEL_TAG}"
+          make -j"$(nproc)" bzImage
+          mkdir -p ../dist
+          cp arch/x86/boot/bzImage ../dist/bzImage
+          ls -lh ../dist/bzImage
+
+      - name: Build the initramfs
+        run: |
+          cd rootfs
+          find . -name .gitkeep -delete
+          find . -print0 | cpio --null -ov --format=newc --owner=0:0 2>/dev/null | gzip -9 > ../dist/initramfs.cpio.gz
+          cd ..
+          ls -lh dist/initramfs.cpio.gz
+
+      - name: Build the bootable ISO (GRUB, BIOS + UEFI)
+        run: |
+          rm -rf isodir
+          mkdir -p isodir/boot/grub isodir/boot/quadra-os
+          cp dist/bzImage isodir/boot/quadra-os/vmlinuz
+          cp dist/initramfs.cpio.gz isodir/boot/quadra-os/initramfs.cpio.gz
+          cp CREDITS.md LICENSE THIRD-PARTY-NOTICES.md isodir/boot/quadra-os/
+          cat > isodir/boot/grub/grub.cfg <<'EOF'
+          set default=0
+          set timeout=3
+          menuentry "QUADRA-OS 1.0" {
+              linux /boot/quadra-os/vmlinuz root=/dev/ram0 console=tty0 console=ttyS0 quiet
+              initrd /boot/quadra-os/initramfs.cpio.gz
+          }
+          menuentry "QUADRA-OS 1.0 (verbose boot)" {
+              linux /boot/quadra-os/vmlinuz root=/dev/ram0 console=tty0 console=ttyS0
+              initrd /boot/quadra-os/initramfs.cpio.gz
+          }
+          EOF
+          grub-mkrescue -o dist/QUADRA-OS.iso isodir -- -volid QUADRA_OS 2>&1 | tail -5
+          ls -lh dist/QUADRA-OS.iso
+          file dist/QUADRA-OS.iso
+
+      - name: Boot test — kernel + initramfs (serial console)
+        run: |
+          set +e
+          printf 'uname -a\ncat /etc/quadra-os/credits\nexit\n' | \
+            timeout 120 qemu-system-x86_64 \
+              -kernel dist/bzImage -initrd dist/initramfs.cpio.gz \
+              -append "console=ttyS0 panic=1" -m 512 -nographic -no-reboot \
+              > boot-direct.log 2>&1
+          grep -aq "QUADRA-OS" boot-direct.log && echo "BOOT OK: QUADRA-OS banner seen"
+          tail -40 boot-direct.log
+
+      - name: Boot test — bootable ISO (BIOS/GRUB)
+        run: |
+          set +e
+          printf 'uname -a\nexit\n' | \
+            timeout 240 qemu-system-x86_64 \
+              -cdrom dist/QUADRA-OS.iso -m 512 -nographic -no-reboot \
+              > boot-iso.log 2>&1
+          grep -aq "QUADRA-OS" boot-iso.log && echo "ISO BOOT OK: QUADRA-OS banner seen"
+          tail -40 boot-iso.log
+
+      - name: Verify the boot logs
+        run: |
+          sh tools/verify-credits.sh
+          grep -aq "QUADRA-OS" boot-direct.log || { echo "direct boot failed"; exit 1; }
+          grep -aq "QUADRA-OS" boot-iso.log || { echo "ISO boot failed"; exit 1; }
+          echo "Both boot paths reached the QUADRA-OS init."
+
+      - name: Checksums
+        run: |
+          ( cd dist && sha256sum bzImage initramfs.cpio.gz QUADRA-OS.iso > SHA256SUMS.txt && cat SHA256SUMS.txt )
+
+      - name: Upload artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: QUADRA-OS-image
+          path: |
+            dist/bzImage
+            dist/initramfs.cpio.gz
+            dist/QUADRA-OS.iso
+            dist/SHA256SUMS.txt
+            boot-direct.log
+            boot-iso.log
+            build/preview/ci-desktop.png
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: QUADRA-OS ${{ github.ref_name }}
+          body: |
+            QUADRA-OS ${{ github.ref_name }} — real Linux 7.3 kernel + framebuffer desktop.
+
+            **All Credits go to : M-Eleven — Mohamed El-Sayed Abdelfatah**
+            https://github.com/M11-Developer · https://www.youtube.com/@M11-Dev · ma7292537@gmail.com
+            TikTok https://www.tiktok.com/@m11_dev · WhatsApp @m11dev
+
+            Boot-tested in CI with QEMU (direct kernel+initramfs and the GRUB ISO).
+            MIT for QUADRA material; the kernel and BusyBox stay GPL-2.0.
+          files: |
+            dist/bzImage
+            dist/initramfs.cpio.gz
+            dist/QUADRA-OS.iso
+            dist/SHA256SUMS.txt
