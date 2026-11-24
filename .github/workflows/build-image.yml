@@ -145,6 +145,28 @@ jobs:
           ls -lh dist/QUADRA-OS.iso
           file dist/QUADRA-OS.iso
 
+      - name: Serial console sanity check
+        run: |
+          set +e
+          echo "--- host kernel, same QEMU invocation ---"
+          HOST_KERNEL=$(ls /boot/vmlinuz-* 2>/dev/null | head -1)
+          if [ -n "$HOST_KERNEL" ]; then
+            timeout 60 qemu-system-x86_64 -kernel "$HOST_KERNEL" \
+              -append "console=ttyS0 ignore_loglevel" -m 512 -nographic -no-reboot \
+              < /dev/null > host-boot.log 2>&1
+            head -15 host-boot.log
+            grep -aq "Linux version" host-boot.log && echo "HOST SERIAL OK" || echo "HOST SERIAL SILENT"
+          else
+            echo "no host kernel available for the sanity check"
+          fi
+
+          echo "--- QUADRA kernel, serial written to a file ---"
+          timeout 60 qemu-system-x86_64 -kernel dist/bzImage \
+            -append "console=ttyS0,115200 earlyprintk=serial ignore_loglevel" \
+            -display none -serial file:serial.log -m 512 -no-reboot < /dev/null
+          echo "serial.log bytes: $(wc -c < serial.log)"
+          head -30 serial.log
+
       - name: Boot test — kernel + initramfs (serial console)
         run: |
           set +e
@@ -198,7 +220,7 @@ jobs:
           tail -400 ci.log > ci-logs/last.log 2>/dev/null || true
           grep -E "^CONFIG_(FB|FB_CORE|FB_VESA|DEVTMPFS|DEVTMPFS_MOUNT|BLK_DEV_INITRD|RD_GZIP|EFI_STUB|FRAMEBUFFER_CONSOLE|MODULES)" \
             linux-src/.config > ci-logs/kernel-config.txt 2>/dev/null || true
-          cp boot-direct.log boot-iso.log ci-logs/ 2>/dev/null || true
+          cp boot-direct.log boot-iso.log serial.log host-boot.log ci-logs/ 2>/dev/null || true
           cd ci-logs
           git init -q -b ci-logs .
           git add -A
