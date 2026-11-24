@@ -209,29 +209,36 @@ jobs:
         run: |
           set +e
           mkdir -p build/preview
-          OVMF=$(ls /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd /usr/share/ovmf/OVMF.fd 2>/dev/null | head -1)
-          echo "OVMF: $OVMF"
-          rm -f /tmp/uefi.ppm uefi-mon.sock
-          if [ -n "$OVMF" ]; then
-            qemu-system-x86_64 -cpu max -m 1024 -cdrom dist/QUADRA-OS.iso \
-              -bios "$OVMF" -display none -vga std \
+          OVMF_CODE=$(ls /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd 2>/dev/null | head -1)
+          OVMF_VARS=$(ls /usr/share/OVMF/OVMF_VARS_4M.fd /usr/share/OVMF/OVMF_VARS.fd 2>/dev/null | head -1)
+          echo "OVMF code: $OVMF_CODE"
+          echo "OVMF vars: $OVMF_VARS"
+          rm -f /tmp/uefi.ppm uefi-mon.sock /tmp/OVMF_VARS.fd
+          if [ -n "$OVMF_CODE" ] && [ -n "$OVMF_VARS" ]; then
+            cp "$OVMF_VARS" /tmp/OVMF_VARS.fd
+            ( sleep 75; echo quit ) | qemu-system-x86_64 -cpu max -m 1024 -cdrom dist/QUADRA-OS.iso \
+              -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
+              -drive if=pflash,format=raw,file=/tmp/OVMF_VARS.fd \
+              -display none -vga std \
               -monitor unix:uefi-mon.sock,server,nowait -serial file:serial-uefi.log \
               -no-reboot > qemu-uefi.log 2>&1 &
             QPID=$!
-            sleep 60
+            sleep 70
             if [ -S uefi-mon.sock ]; then
               printf 'screendump /tmp/uefi.ppm\n' | socat - UNIX-CONNECT:uefi-mon.sock
               sleep 3
               printf 'quit\n' | socat - UNIX-CONNECT:uefi-mon.sock
+            else
+              echo "uefi monitor socket never appeared"
             fi
             wait $QPID
             echo "--- serial (UEFI) ---"
-            tail -c 1200 serial-uefi.log | cat -v
+            tail -c 1500 serial-uefi.log | cat -v
             if [ -f /tmp/uefi.ppm ]; then
               convert /tmp/uefi.ppm build/preview/qemu-uefi-desktop.png && identify build/preview/qemu-uefi-desktop.png
             fi
           else
-            echo "no OVMF firmware on the runner"
+            echo "OVMF firmware/vars not found on the runner"
           fi
 
       - name: Boot test — kernel + initramfs (serial console)
