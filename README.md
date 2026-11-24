@@ -63,6 +63,30 @@ does the whole thing on a clean Ubuntu runner and **boots the result**:
 Download the released `bzImage`, `initramfs.cpio.gz` and `QUADRA-OS.iso`
 from the repository's **Releases** page.
 
+### What is verified, and what is not
+
+Verified in CI on every tagged build:
+
+- Linux 7.3.0 x86_64 boots from the raw kernel + initramfs and from the
+  GRUB ISO; the serial log shows the QUADRA-OS init banner, the M-Eleven
+  credits and `uname -a` → `Linux QUADRA-OS 7.3.0 ... x86_64 GNU/Linux`.
+- The desktop shell compiles statically and renders every screen in
+  headless PNG mode (`--png`), and the Files/Settings apps work.
+- Attribution and license files ship inside the ISO, the installers and
+  the release archive; the credit guard job enforces them.
+
+Known limitations (stated honestly):
+
+- The desktop needs a framebuffer device (`/dev/fb0`). On our QEMU
+  runners the emulated firmware did not expose one, so the boot tests
+  land on the QUADRA-OS console shell instead of the graphical desktop;
+  on real UEFI hardware the framebuffer is normally present and
+  `/init` starts `quadra-desktop` automatically.
+- There is no app compatibility layer yet (Windows/Android/macOS apps
+  are a design target, not an implemented feature).
+- The Windows installer places the OS files on disk and writes a boot
+  description; it does not make Windows Boot Manager boot Linux.
+
 ## Boot instructions
 
 ### With QEMU (real boot, no USB needed)
