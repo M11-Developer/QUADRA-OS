@@ -32,7 +32,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential bc bison flex libssl-dev libelf-dev cpio \
             qemu-system-x86 xorriso grub-pc-bin grub-efi-amd64-bin mtools \
-            dosfstools file
+            dosfstools file imagemagick socat
 
       - name: Attribution check
         run: sh tools/verify-credits.sh
@@ -113,6 +113,8 @@ jobs:
           mkdir -p ../dist
           cp arch/x86/boot/bzImage ../dist/bzImage
           ls -lh ../dist/bzImage
+          file ../dist/bzImage || true
+          grep -E "^CONFIG_(64BIT|X86_64|X86_5LEVEL|RANDOMIZE_BASE|PHYSICAL_START|KERNEL_GZIP)=" .config || true
 
       - name: Build the initramfs
         run: |
@@ -168,6 +170,20 @@ jobs:
           echo "serial.log bytes: $(wc -c < serial.log)"
           head -30 serial.log
 
+      - name: VGA screendump boot probe
+        run: |
+          set +e
+          mkdir -p build/preview
+          ( sleep 30; echo 'screendump /tmp/screen.ppm'; sleep 3; echo 'quit' ) | \
+            timeout 90 qemu-system-x86_64 -kernel dist/bzImage -initrd dist/initramfs.cpio.gz \
+              -append "console=tty0" -display none -vga std -m 512 \
+              -monitor stdio -serial null -no-reboot -d guest_errors -D qemu-debug.log
+          ls -l /tmp/screen.ppm qemu-debug.log 2>/dev/null
+          tail -20 qemu-debug.log 2>/dev/null
+          if [ -f /tmp/screen.ppm ]; then
+            convert /tmp/screen.ppm build/preview/qemu-boot.png && echo "screendump saved"
+          fi
+
       - name: Boot test — kernel + initramfs (serial console)
         run: |
           set +e
@@ -222,7 +238,8 @@ jobs:
           tail -400 ci.log > ci-logs/last.log 2>/dev/null || true
           grep -E "^CONFIG_(FB|FB_CORE|FB_VESA|DEVTMPFS|DEVTMPFS_MOUNT|BLK_DEV_INITRD|RD_GZIP|EFI_STUB|FRAMEBUFFER_CONSOLE|MODULES)" \
             linux-src/.config > ci-logs/kernel-config.txt 2>/dev/null || true
-          cp boot-direct.log boot-iso.log serial.log host-boot.log ci-logs/ 2>/dev/null || true
+          cp boot-direct.log boot-iso.log serial.log host-boot.log qemu-debug.log ci-logs/ 2>/dev/null || true
+          cp build/preview/qemu-boot.png ci-logs/ 2>/dev/null || true
           cd ci-logs
           git init -q -b ci-logs .
           git add -A
