@@ -34,7 +34,9 @@ cat /etc/motd 2>/dev/null
 # If a framebuffer device exists, hand over to the desktop.
 # (quadra-desktop renders the wallpaper, top bar, dock, windows.)
 if [ -c /dev/fb0 ]; then
-    exec /bin/quadra-desktop
+    echo "QUADRA-OS: framebuffer found - starting the desktop"
+    /bin/quadra-desktop
+    echo "QUADRA-OS: desktop session ended ($?) - falling back to the console"
 fi
 
 # Fallback: interactive root shell
@@ -44,4 +46,4 @@ echo "== Console =="
 echo "  tty1: QUADRA-OS root shell"
 echo "  Try:  ls /etc   free -h   df -h   uname -a   dmesg"
 echo
-exec /bin/sh -l
+exec /bin/setsid /bin/cttyhack /bin/sh -l

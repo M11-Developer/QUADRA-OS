@@ -76,6 +76,8 @@ jobs:
             TMPFS PROC_FS SYSFS UNIX SHMEM \
             SERIAL_CORE SERIAL_CORE_CONSOLE SERIAL_8250 SERIAL_8250_CONSOLE TTY \
             PRINTK VGA_CONSOLE VT_CONSOLE \
+            DRM DRM_SIMPLEDRM DRM_FBDEV_EMULATION SYSFB SYSFB_SIMPLEFB \
+            FB_EFI FB_VESA \
             BINFMT_ELF; do
             scripts/config --file .config -e "$opt" || echo "note: no $opt in this kernel"
           done
@@ -134,8 +136,13 @@ jobs:
           cat > isodir/boot/grub/grub.cfg <<'EOF'
           set default=0
           set timeout=3
+          # ask the firmware for a real linear framebuffer so the desktop gets /dev/fb0
+          set gfxmode=1024x768x32,800x600x32,auto
+          set gfxpayload=keep
+          insmod all_video
           menuentry "QUADRA-OS 1.0" {
-              linux /boot/quadra-os/vmlinuz root=/dev/ram0 console=tty0 console=ttyS0 quiet
+              set gfxpayload=1024x768x32
+              linux /boot/quadra-os/vmlinuz root=/dev/ram0 video=1024x768 console=tty0 console=ttyS0 quiet
               initrd /boot/quadra-os/initramfs.cpio.gz
           }
           menuentry "QUADRA-OS 1.0 (verbose boot)" {
@@ -170,19 +177,17 @@ jobs:
           echo "serial.log bytes: $(wc -c < serial.log)"
           head -30 serial.log
 
-      - name: VGA screendump boot probe
+      - name: Desktop screendump probe (boots the ISO)
         run: |
           set +e
           mkdir -p build/preview
-          echo "qemu: $(qemu-system-x86_64 --version | head -1)"
-          rm -f /tmp/screen.ppm mon.sock
-          qemu-system-x86_64 -cpu max -machine pc -kernel dist/bzImage -initrd dist/initramfs.cpio.gz \
-            -append "console=tty0" -display none -vga std -m 512 \
-            -monitor unix:mon.sock,server,nowait -serial file:serial-vga.log \
-            -no-reboot -d int,cpu_reset,guest_errors -D qemu-debug.log \
-            > qemu-probe.log 2>&1 &
+          rm -f /tmp/screen.ppm mon.sock serial-probe.log
+          qemu-system-x86_64 -cpu max -m 512 -cdrom dist/QUADRA-OS.iso \
+            -display none -vga std \
+            -monitor unix:mon.sock,server,nowait -serial file:serial-probe.log \
+            -no-reboot -d guest_errors -D qemu-debug.log > qemu-probe.log 2>&1 &
           QPID=$!
-          sleep 35
+          sleep 45
           if [ -S mon.sock ]; then
             printf 'screendump /tmp/screen.ppm\n' | socat - UNIX-CONNECT:mon.sock
             sleep 3
@@ -192,13 +197,12 @@ jobs:
             echo "monitor socket never appeared - QEMU exited early"
           fi
           wait $QPID
-          echo "probe exit: $?"
-          ls -l /tmp/screen.ppm serial-vga.log qemu-debug.log 2>/dev/null
-          tail -15 qemu-probe.log
-          tail -30 monitor-regs.log 2>/dev/null
+          ls -l /tmp/screen.ppm 2>/dev/null
+          echo "--- serial (probe) ---"
+          tail -c 1500 serial-probe.log | cat -v
           if [ -f /tmp/screen.ppm ]; then
-            convert /tmp/screen.ppm build/preview/qemu-boot.png && echo "screendump saved"
-            tail -c 2000 serial-vga.log | cat -v
+            convert /tmp/screen.ppm build/preview/qemu-desktop.png && echo "screendump saved"
+            identify build/preview/qemu-desktop.png
           fi
 
       - name: Boot test — kernel + initramfs (serial console)
@@ -255,9 +259,9 @@ jobs:
           tail -400 ci.log > ci-logs/last.log 2>/dev/null || true
           grep -E "^CONFIG_(FB|FB_CORE|FB_VESA|DEVTMPFS|DEVTMPFS_MOUNT|BLK_DEV_INITRD|RD_GZIP|EFI_STUB|FRAMEBUFFER_CONSOLE|MODULES)" \
             linux-src/.config > ci-logs/kernel-config.txt 2>/dev/null || true
-          cp boot-direct.log boot-iso.log serial.log serial-vga.log host-boot.log \
+          cp boot-direct.log boot-iso.log serial.log serial-probe.log host-boot.log \
              qemu-debug.log qemu-probe.log monitor-regs.log ci-logs/ 2>/dev/null || true
-          cp build/preview/qemu-boot.png ci-logs/ 2>/dev/null || true
+          cp build/preview/qemu-desktop.png ci-logs/ 2>/dev/null || true
           cd ci-logs
           git init -q -b ci-logs .
           git add -A
