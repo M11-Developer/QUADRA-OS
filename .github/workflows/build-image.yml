@@ -153,7 +153,7 @@ jobs:
           echo "--- host kernel, same QEMU invocation ---"
           HOST_KERNEL=$(ls /boot/vmlinuz-* 2>/dev/null | head -1)
           if [ -n "$HOST_KERNEL" ]; then
-            timeout 60 qemu-system-x86_64 -kernel "$HOST_KERNEL" \
+            timeout 60 qemu-system-x86_64 -cpu max -kernel "$HOST_KERNEL" \
               -append "console=ttyS0 ignore_loglevel" -m 512 -nographic -no-reboot \
               < /dev/null > host-boot.log 2>&1
             head -15 host-boot.log
@@ -164,7 +164,7 @@ jobs:
 
           echo "--- QUADRA kernel, serial written to a file ---"
           # keep stdin open: QEMU quits when a stdio chardev hits EOF
-          ( sleep 45 ) | timeout 60 qemu-system-x86_64 -kernel dist/bzImage \
+          ( sleep 45 ) | timeout 60 qemu-system-x86_64 -cpu max -kernel dist/bzImage \
             -append "console=ttyS0,115200 earlyprintk=serial ignore_loglevel" \
             -display none -serial file:serial.log -monitor none -m 512 -no-reboot
           echo "serial.log bytes: $(wc -c < serial.log)"
@@ -176,7 +176,7 @@ jobs:
           mkdir -p build/preview
           echo "qemu: $(qemu-system-x86_64 --version | head -1)"
           rm -f /tmp/screen.ppm mon.sock
-          qemu-system-x86_64 -kernel dist/bzImage -initrd dist/initramfs.cpio.gz \
+          qemu-system-x86_64 -cpu max -machine pc -kernel dist/bzImage -initrd dist/initramfs.cpio.gz \
             -append "console=tty0" -display none -vga std -m 512 \
             -monitor unix:mon.sock,server,nowait -serial file:serial-vga.log \
             -no-reboot -d int,cpu_reset,guest_errors -D qemu-debug.log \
@@ -206,7 +206,7 @@ jobs:
           set +e
           # stdin stays open for the whole run (a stdio EOF makes QEMU quit)
           ( sleep 20; printf 'uname -a\ncat /etc/quadra-os/credits\nexit\n'; sleep 90 ) | \
-            timeout 150 qemu-system-x86_64 \
+            timeout 150 qemu-system-x86_64 -cpu max -machine pc \
               -kernel dist/bzImage -initrd dist/initramfs.cpio.gz \
               -append "console=ttyS0,115200 earlyprintk=serial,ttyS0,115200 ignore_loglevel panic=1" \
               -m 512 -nographic -monitor none -no-reboot \
@@ -218,7 +218,7 @@ jobs:
         run: |
           set +e
           ( sleep 25; printf 'uname -a\nexit\n'; sleep 150 ) | \
-            timeout 210 qemu-system-x86_64 \
+            timeout 210 qemu-system-x86_64 -cpu max \
               -cdrom dist/QUADRA-OS.iso -m 512 -nographic -monitor none -no-reboot \
               > boot-iso.log 2>&1
           grep -aq "QUADRA-OS" boot-iso.log && echo "ISO BOOT OK: QUADRA-OS banner seen"
