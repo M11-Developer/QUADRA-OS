@@ -74,12 +74,16 @@ jobs:
             KEYBOARD_ATKBD MOUSE_PS2 \
             EFI EFI_STUB EFI_PARTITION \
             TMPFS PROC_FS SYSFS UNIX SHMEM \
-            SERIAL_8250 SERIAL_8250_CONSOLE TTY \
+            SERIAL_CORE SERIAL_CORE_CONSOLE SERIAL_8250 SERIAL_8250_CONSOLE TTY \
+            PRINTK VGA_CONSOLE VT_CONSOLE \
             BINFMT_ELF; do
             scripts/config --file .config -e "$opt" || echo "note: no $opt in this kernel"
           done
           scripts/config --file .config -d MODULES || true
           make olddefconfig
+
+          echo "--- serial/tty options ---"
+          grep -E "SERIAL|TTY|CONSOLE|PRINTK" .config | head -40 || true
 
           echo "--- resolved boot options ---"
           for opt in CONFIG_FB CONFIG_FB_CORE CONFIG_FB_VESA CONFIG_FRAMEBUFFER_CONSOLE \
@@ -88,6 +92,17 @@ jobs:
             grep -E "^${opt}=" .config || echo "WARNING: ${opt} not set"
           done
           if grep -q "^CONFIG_MODULES=y" .config; then echo "WARNING: modules still on"; fi
+
+          missing=0
+          for req in CONFIG_SERIAL_8250=y CONFIG_SERIAL_8250_CONSOLE=y \
+                     CONFIG_FB_VESA=y CONFIG_DEVTMPFS_MOUNT=y CONFIG_BLK_DEV_INITRD=y \
+                     CONFIG_TTY=y CONFIG_PRINTK=y; do
+            if ! grep -qx "$req" .config; then
+              echo "::error title=Kernel config::$req is missing - the image would boot blind"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then exit 1; fi
 
       - name: Build the kernel
         run: |
@@ -136,7 +151,8 @@ jobs:
           printf 'uname -a\ncat /etc/quadra-os/credits\nexit\n' | \
             timeout 120 qemu-system-x86_64 \
               -kernel dist/bzImage -initrd dist/initramfs.cpio.gz \
-              -append "console=ttyS0 panic=1" -m 512 -nographic -no-reboot \
+              -append "console=ttyS0,115200 earlyprintk=serial,ttyS0,115200 ignore_loglevel panic=1" \
+              -m 512 -nographic -no-reboot \
               > boot-direct.log 2>&1
           grep -aq "QUADRA-OS" boot-direct.log && echo "BOOT OK: QUADRA-OS banner seen"
           tail -40 boot-direct.log
