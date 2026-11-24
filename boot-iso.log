@@ -1,0 +1,151 @@
+c[?7l[2J[0mSeaBIOS (version 1.17.0-debian-1.17.0-1ubuntu1)
+
+
+iPXE (https://ipxe.org) 00:03.0 CA00 PCI2.10 PnP PMM+1EFC8E00+1EF08E00 CA00
+Press Ctrl-B to configure iPXE (PCI 00:03.0)...                                                                               
+
+
+Booting from Hard Disk...
+Boot failed: could not read the boot disk
+
+Booting from Floppy...
+Boot failed: could not read the boot disk
+
+Booting from DVD/CD...
+[01;01H[2J[02;30HGNU GRUB  version 2.14[04;02H┌────────────────────────────────────────────────────────────────────────────┐[05;02H│[05;79H│[06;02H│[06;79H│[07;02H│[07;79H│[08;02H│[08;79H│[09;02H│[09;79H│[10;02H│[10;79H│[11;02H│[11;79H│[12;02H│[12;79H│[13;02H│[13;79H│[14;02H│[14;79H│[15;02H│[15;79H│[16;02H│[16;79H│[17;02H│[17;79H│[18;02H└────────────────────────────────────────────────────────────────────────────┘[20;02H     Use the ↑ and ↓ keys to select which entry is highlighted.          
+      Press enter to boot the selected OS, `e' to edit the commands       
+      before booting or `c' for a command-line.                           [05;80H [05;03H[0;30;47m*QUADRA-OS 1.0                                                              [06;03H[0m QUADRA-OS 1.0 (verbose boot)                         [06;56H[06;57H                      [07;03H                                                                            [08;03H                                                                            [09;03H                                                                            [10;03H                                                                            [11;03H                                                                            [12;03H                                                                            [13;03H                                                                            [14;03H                                                                            [15;03H                                                                            [16;03H                                                                            [17;03H                                                                            [17;80H 
+
+
+
+
+
+   The highlighted entry will be executed automatically in 3s.                 [05;78H
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   The highlighted entry will be executed automatically in 2s.                 [05;78H
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   The highlighted entry will be executed automatically in 1s.                 [05;78H
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+   The highlighted entry will be executed automatically in 0s.                 [01;01H[2J=== QUADRA-OS v1.0 ===
+All Credits go to : M-Eleven - Mohamed El-Sayed Abdelfatah
+https://github.com/M11-Developer  |  MIT licensed
+      ____            _   _
+     |  _ \   ___ | |_| |_ __ _ ___ _ __
+     | |_) | / _  | __| __| '__| '_  | '_ \\ \\ / _ \\
+     |  __/| (_| | |_| |_| |  | |_) | |_| | ___/
+     |_|   \\__,_|\\__|\\__|_|  |_.__|_.__|\\___
+
+                Q U A D R A   O S   v1.0
+
+              Linux 7.3  -  built for low-end PCs
+
+              All Credits go to : M-Eleven
+           Mohamed El-Sayed Abdelfatah  ·  MIT
+
+   GitHub  https://github.com/M11-Developer
+   YouTube https://www.youtube.com/@M11-Dev
+   Mail    ma7292537@gmail.com
+   TikTok  https://www.tiktok.com/@m11_dev
+   WhatsApp @m11dev
+      ____            _   _
+     |  _ \   ___ | |_| |_ __ _ ___ _ __
+     | |_) | / _  | __| __| '__| '_  | '_ \\ \\ / _ \\
+     |  __/| (_| | |_| |_| |  | |_) | |_| | ___/
+     |_|   \\__,_|\\__|\\__|_|  |_.__|_.__|\\___
+
+                Q U A D R A   O S   v1.0
+
+              Linux 7.3  -  built for low-end PCs
+
+              All Credits go to : M-Eleven
+           Mohamed El-Sayed Abdelfatah  ·  MIT
+
+   GitHub  https://github.com/M11-Developer
+   YouTube https://www.youtube.com/@M11-Dev
+   Mail    ma7292537@gmail.com
+   TikTok  https://www.tiktok.com/@m11_dev
+   WhatsApp @m11dev
+
+== Console ==
+  tty1: QUADRA-OS root shell
+  Try:  ls /etc   free -h   df -h   uname -a   dmesg
+
+cttyhack: can't open '/dev/ttyS0': No such file or directory
+/bin/sh: can't access tty; job control turned off
+QUADRA-OS:# uname -a
+Linux QUADRA-OS 7.3.0 #2 SMP PREEMPT_DYNAMIC Tue Nov 24 17:48:06 UTC 2026 x86_64 GNU/Linux
+QUADRA-OS:# exit
+[   18.683036] Kernel panic - not syncing: Attempted to kill init! exitcode=0x00000000
+[   18.684028] CPU: 0 UID: 0 PID: 1 Comm: sh Not tainted 7.3.0 #2 PREEMPT(lazy) 
+[   18.684223] Hardware name: QEMU Ubuntu 26.04 PC (i440FX + PIIX, 1996), BIOS 1.17.0-debian-1.17.0-1ubuntu1 04/01/2014
+[   18.684519] Call Trace:
+[   18.684973]  <TASK>
+[   18.685131]  dump_stack_lvl+0x4d/0x70
+[   18.685398]  vpanic+0x206/0x3f0
+[   18.685472]  panic+0x66/0x70
+[   18.685538]  do_exit.cold+0x15/0x3c
+[   18.685610]  do_group_exit+0x28/0xb0
+[   18.685690]  __x64_sys_exit_group+0x13/0x20
+[   18.685770]  x64_sys_call+0x1567/0x1570
+[   18.685844]  do_syscall_64+0xda/0x4b0
+[   18.685936]  entry_SYSCALL_64_after_hwframe+0x77/0x7f
+[   18.686121] RIP: 0033:0x42605e
+[   18.686312] Code: 10 00 48 8b 05 83 31 10 00 e9 81 fe ff ff 66 2e 0f 1f 84 00 00 00 00 00 0f 1f 40 00 f3 0f 1e fa 48 63 ff b8 e7 00 00 00 0f 05 <ba> 3c 00 00 00 0f 1f 44 00 00 48 89 d0 0f 05 eb f9 90 41 56 41 55
+[   18.686692] RSP: 002b:00007ffd1c415758 EFLAGS: 00000206 ORIG_RAX: 00000000000000e7
+[   18.686864] RAX: ffffffffffffffda RBX: 00007fce47e95404 RCX: 000000000042605e
+[   18.687012] RDX: 00007fce47e95030 RSI: 0000000000000000 RDI: 0000000000000000
+[   18.687145] RBP: 0000000000000004 R08: 0000000000000000 R09: 8080808080808080
+[   18.687275] R10: 0000000000000002 R11: 0000000000000206 R12: 000000000042ebde
+[   18.687406] R13: 00007ffd1c415a70 R14: 0000000000000000 R15: 0000000000000000
+[   18.687580]  </TASK>
+[   18.688842] Kernel Offset: 0x28e00000 from 0xffffffff81000000 (relocation range: 0xffffffff80000000-0xffffffffbfffffff)
+[   18.689419] ---[ end Kernel panic - not syncing: Attempted to kill init! exitcode=0x00000000 ]---
+qemu-system-x86_64: terminating on signal 15 from pid 9956 (timeout)
