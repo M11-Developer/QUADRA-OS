@@ -32,7 +32,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential bc bison flex libssl-dev libelf-dev cpio \
             qemu-system-x86 xorriso grub-pc-bin grub-efi-amd64-bin mtools \
-            dosfstools file imagemagick socat
+            dosfstools file imagemagick socat ovmf
 
       - name: Attribution check
         run: sh tools/verify-credits.sh
@@ -98,7 +98,7 @@ jobs:
           missing=0
           for req in CONFIG_SERIAL_8250=y CONFIG_SERIAL_8250_CONSOLE=y \
                      CONFIG_FB_VESA=y CONFIG_DEVTMPFS_MOUNT=y CONFIG_BLK_DEV_INITRD=y \
-                     CONFIG_TTY=y CONFIG_PRINTK=y; do
+                     CONFIG_TTY=y CONFIG_PRINTK=y CONFIG_FB_EFI=y; do
             if ! grep -qx "$req" .config; then
               echo "::error title=Kernel config::$req is missing - the image would boot blind"
               missing=1
@@ -205,6 +205,35 @@ jobs:
             identify build/preview/qemu-desktop.png
           fi
 
+      - name: UEFI desktop probe (OVMF firmware)
+        run: |
+          set +e
+          mkdir -p build/preview
+          OVMF=$(ls /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd /usr/share/ovmf/OVMF.fd 2>/dev/null | head -1)
+          echo "OVMF: $OVMF"
+          rm -f /tmp/uefi.ppm uefi-mon.sock
+          if [ -n "$OVMF" ]; then
+            qemu-system-x86_64 -cpu max -m 1024 -cdrom dist/QUADRA-OS.iso \
+              -bios "$OVMF" -display none -vga std \
+              -monitor unix:uefi-mon.sock,server,nowait -serial file:serial-uefi.log \
+              -no-reboot > qemu-uefi.log 2>&1 &
+            QPID=$!
+            sleep 60
+            if [ -S uefi-mon.sock ]; then
+              printf 'screendump /tmp/uefi.ppm\n' | socat - UNIX-CONNECT:uefi-mon.sock
+              sleep 3
+              printf 'quit\n' | socat - UNIX-CONNECT:uefi-mon.sock
+            fi
+            wait $QPID
+            echo "--- serial (UEFI) ---"
+            tail -c 1200 serial-uefi.log | cat -v
+            if [ -f /tmp/uefi.ppm ]; then
+              convert /tmp/uefi.ppm build/preview/qemu-uefi-desktop.png && identify build/preview/qemu-uefi-desktop.png
+            fi
+          else
+            echo "no OVMF firmware on the runner"
+          fi
+
       - name: Boot test — kernel + initramfs (serial console)
         run: |
           set +e
@@ -259,9 +288,10 @@ jobs:
           tail -400 ci.log > ci-logs/last.log 2>/dev/null || true
           grep -E "^CONFIG_(FB|FB_CORE|FB_VESA|DEVTMPFS|DEVTMPFS_MOUNT|BLK_DEV_INITRD|RD_GZIP|EFI_STUB|FRAMEBUFFER_CONSOLE|MODULES)" \
             linux-src/.config > ci-logs/kernel-config.txt 2>/dev/null || true
-          cp boot-direct.log boot-iso.log serial.log serial-probe.log host-boot.log \
+          cp boot-direct.log boot-iso.log serial.log serial-probe.log serial-uefi.log qemu-uefi.log host-boot.log \
              qemu-debug.log qemu-probe.log monitor-regs.log ci-logs/ 2>/dev/null || true
           cp build/preview/qemu-desktop.png ci-logs/ 2>/dev/null || true
+          cp build/preview/qemu-uefi-desktop.png ci-logs/ 2>/dev/null || true
           cd ci-logs
           git init -q -b ci-logs .
           git add -A
