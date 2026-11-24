@@ -46,23 +46,24 @@ jobs:
       - name: Cache Linux source
         uses: actions/cache@v4
         with:
-          path: linux-${{ env.KERNEL_TAG }}
+          path: linux-src
           key: linux-src-${{ env.KERNEL_TAG }}
 
       - name: Fetch Linux ${{ env.KERNEL_TAG }}
         run: |
-          if [ ! -d "linux-${KERNEL_TAG}" ]; then
+          if [ ! -f linux-src/Makefile ]; then
             curl -fsSL --retry 3 "https://codeload.github.com/torvalds/linux/tar.gz/refs/tags/${KERNEL_TAG}" -o linux.tar.gz
-            tar xzf linux.tar.gz
+            mkdir -p linux-src
+            tar xzf linux.tar.gz -C linux-src --strip-components=1
           fi
-          ls -d linux-*
+          head -5 linux-src/Makefile
 
       - name: Configure the kernel
         run: |
           set -o pipefail
           exec > >(tee -a ci.log) 2>&1
           set -x
-          cd "linux-${KERNEL_TAG}"
+          cd linux-src
           make defconfig
 
           # Framebuffer desktop, initramfs, devtmpfs, EFI-stub boot.
@@ -92,7 +93,7 @@ jobs:
         run: |
           set -o pipefail
           exec > >(tee -a ci.log) 2>&1
-          cd "linux-${KERNEL_TAG}"
+          cd linux-src
           make -j"$(nproc)" bzImage
           mkdir -p ../dist
           cp arch/x86/boot/bzImage ../dist/bzImage
@@ -180,7 +181,7 @@ jobs:
           mkdir -p ci-logs
           tail -400 ci.log > ci-logs/last.log 2>/dev/null || true
           grep -E "^CONFIG_(FB|FB_CORE|FB_VESA|DEVTMPFS|DEVTMPFS_MOUNT|BLK_DEV_INITRD|RD_GZIP|EFI_STUB|FRAMEBUFFER_CONSOLE|MODULES)" \
-            linux-*/.config > ci-logs/kernel-config.txt 2>/dev/null || true
+            linux-src/.config > ci-logs/kernel-config.txt 2>/dev/null || true
           cp boot-direct.log boot-iso.log ci-logs/ 2>/dev/null || true
           cd ci-logs
           git init -q -b ci-logs .
