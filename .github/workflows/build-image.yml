@@ -59,25 +59,39 @@ jobs:
 
       - name: Configure the kernel
         run: |
+          set -o pipefail
+          exec > >(tee -a ci.log) 2>&1
+          set -x
           cd "linux-${KERNEL_TAG}"
           make defconfig
-          scripts/config --file .config \
-            -d MODULES \
-            -e DEVTMPFS -e DEVTMPFS_MOUNT \
-            -e BLK_DEV_INITRD -e RD_GZIP \
-            -e FB -e FB_VESA -e FRAMEBUFFER_CONSOLE \
-            -e VT -e VT_CONSOLE \
-            -e INPUT -e INPUT_EVDEV -e INPUT_KEYBOARD -e INPUT_MOUSE \
-            -e KEYBOARD_ATKBD -e MOUSE_PS2 \
-            -e EFI -e EFI_STUB \
-            -e TMPFS -e PROC_FS -e SYSFS -e UNIX -e SHMEM \
-            -e SERIAL_8250 -e SERIAL_8250_CONSOLE -e TTY \
-            -e BINFMT_ELF -e FUTEX -e EPOLL -e SIGNALFD -e TIMERFD -e EVENTFD
+
+          # Framebuffer desktop, initramfs, devtmpfs, EFI-stub boot.
+          for opt in \
+            DEVTMPFS DEVTMPFS_MOUNT BLK_DEV_INITRD RD_GZIP \
+            FB FB_CORE FB_VESA FRAMEBUFFER_CONSOLE VT VT_CONSOLE \
+            INPUT INPUT_EVDEV INPUT_KEYBOARD INPUT_MOUSE \
+            KEYBOARD_ATKBD MOUSE_PS2 \
+            EFI EFI_STUB EFI_PARTITION \
+            TMPFS PROC_FS SYSFS UNIX SHMEM \
+            SERIAL_8250 SERIAL_8250_CONSOLE TTY \
+            BINFMT_ELF; do
+            scripts/config --file .config -e "$opt" || echo "note: no $opt in this kernel"
+          done
+          scripts/config --file .config -d MODULES || true
           make olddefconfig
-          grep -E "CONFIG_(FB_VESA|DEVTMPFS_MOUNT|FRAMEBUFFER_CONSOLE|EFI_STUB|BLK_DEV_INITRD|MODULES)=" .config
+
+          echo "--- resolved boot options ---"
+          for opt in CONFIG_FB CONFIG_FB_CORE CONFIG_FB_VESA CONFIG_FRAMEBUFFER_CONSOLE \
+                     CONFIG_DEVTMPFS CONFIG_DEVTMPFS_MOUNT CONFIG_BLK_DEV_INITRD \
+                     CONFIG_RD_GZIP CONFIG_EFI_STUB CONFIG_SERIAL_8250_CONSOLE; do
+            grep -E "^${opt}=" .config || echo "WARNING: ${opt} not set"
+          done
+          if grep -q "^CONFIG_MODULES=y" .config; then echo "WARNING: modules still on"; fi
 
       - name: Build the kernel
         run: |
+          set -o pipefail
+          exec > >(tee -a ci.log) 2>&1
           cd "linux-${KERNEL_TAG}"
           make -j"$(nproc)" bzImage
           mkdir -p ../dist
@@ -159,6 +173,21 @@ jobs:
             boot-direct.log
             boot-iso.log
             build/preview/ci-desktop.png
+
+      - name: Publish failure diagnostics
+        if: failure()
+        run: |
+          mkdir -p ci-logs
+          tail -400 ci.log > ci-logs/last.log 2>/dev/null || true
+          grep -E "^CONFIG_(FB|FB_CORE|FB_VESA|DEVTMPFS|DEVTMPFS_MOUNT|BLK_DEV_INITRD|RD_GZIP|EFI_STUB|FRAMEBUFFER_CONSOLE|MODULES)" \
+            linux-*/.config > ci-logs/kernel-config.txt 2>/dev/null || true
+          cp boot-direct.log boot-iso.log ci-logs/ 2>/dev/null || true
+          cd ci-logs
+          git init -q -b ci-logs .
+          git add -A
+          git -c user.name="M-Eleven CI" -c user.email="ma7292537@gmail.com" \
+            commit -q -m "CI diagnostics for run $GITHUB_RUN_ID" || true
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" HEAD:ci-logs
 
       - name: Attach to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
