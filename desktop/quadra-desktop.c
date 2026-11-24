@@ -1127,6 +1127,7 @@ static void draw_welcome(Canvas *c) {
     draw_text(c, px + 24, py + 116, "Alt+F4 closes a window.", 1, TEXT);
     draw_text(c, px + 24, py + 138, "Ctrl+Shift+Esc opens Task Manager.", 1, TEXT);
     draw_text(c, px + 24, py + 160, "Linux base; other app layers are not bundled.", 1, TEXT_FAINT);
+    draw_text(c, px + 24, py + 182, "All Credits: M-Eleven (MIT)", 1, 0x8fb4d8);
 
     int bw = 126, bh = 30;
     int bx = px + pw - bw - 22, by = py + ph - bh - 16;
