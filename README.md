@@ -1,5 +1,9 @@
 # QUADRA-OS
 
+**All Credits go to : M-Eleven — Mohamed El-Sayed Abdelfatah**
+YouTube <https://www.youtube.com/@M11-Dev> · GitHub <https://github.com/M11-Developer> ·
+Mail <ma7292537@gmail.com> · TikTok <https://www.tiktok.com/@m11_dev> · WhatsApp @m11dev
+
 A modern, lean, low-end-PC-friendly OS built from a real Linux 7.3 kernel
 + a static busybox initramfs + a native framebuffer desktop shell.
 
@@ -22,17 +26,25 @@ A modern, lean, low-end-PC-friendly OS built from a real Linux 7.3 kernel
 - **initramfs:** busybox 1.36.1 (static) + brand assets + the static desktop
   shell — ~1.6 MB compressed.
 - **Target:** low-end PCs (~256 MB idle, ~14 MB kernel image).
-- **License:** Kernel bzImage + quadra-desktop are GPL-2.0 (Linux kernel /
-  project source). Branding, init script and userland content are
-  released under the project MIT license. See `docs/QUADRA-OS-REFERENCES.md`.
+- **License:** MIT for all QUADRA-authored material — desktop shell, init
+  script, installers, tools, branding, docs (`LICENSE`, `CREDITS.md`). The
+  Linux kernel and BusyBox keep GPL-2.0 upstream licenses, and the 8x8
+  bitmap font is public domain; see `THIRD-PARTY-NOTICES.md`.
+- **Attribution guard:** `tools/verify-credits.sh` + GitHub Actions
+  (`.github/workflows/credits.yml`) fail any change that drops the M-Eleven
+  credit notices from the required files.
 
 ## Artefacts
 
 | File | What it is |
 | --- | --- |
-| `dist/bzImage` | Bootable Linux 7.3.0 x86_64 kernel with framebuffer (~14 MB) |
-| `dist/initramfs.cpio.gz` | BusyBox + quadra-desktop initramfs (~1.6 MB compressed) |
-| `dist/boot.sh` | Reference boot launcher (not a bootloader) |
+| `dist/bzImage` | Bootable Linux 7.3.0 x86_64 kernel with framebuffer (~13.6 MB) |
+| `dist/initramfs.cpio.gz` | BusyBox + quadra-desktop + brand assets initramfs (~5.7 MB compressed) |
+| `dist/QUADRA-OS.iso` | ISO9660/Joliet data image with kernel, initramfs, desktop, brand assets and boot config (~25 MB) |
+| `installer/Install-QUADRA-OS.sh` | Linux installer (staged install, checksums, config, GRUB entry) |
+| `installer/Install-QUADRA-OS.ps1` | Windows installer (installs to `C:\QUADRA-OS`) |
+| `installer/QUADRA-OS-Installer.cmd` | Windows one-click launcher |
+| `desktop/quadra-desktop` | Static framebuffer desktop shell (~940 KB) |
 
 ## Boot instructions
 
@@ -63,6 +75,56 @@ menuentry "QUADRA-OS" {
 and run `grub-mkconfig -o /boot/grub/grub.cfg`.
 
 See `dist/boot.sh` for the full reference.
+
+## Installing QUADRA-OS
+
+### Linux (dual-boot style install)
+
+```sh
+./installer/Install-QUADRA-OS.sh --dry-run   # preview
+./installer/Install-QUADRA-OS.sh --system     # install to /
+./installer/Install-QUADRA-OS.sh --target DIR  # stage into a folder
+```
+
+The Linux installer copies the kernel to `/boot/quadra-os/vmlinuz`, the
+initramfs to `/boot/quadra-os/initramfs.cpio.gz`, the desktop binary to
+`/opt/quadra-os/desktop/`, writes a config file, checksums, and (where
+`grub-mkconfig` is present) a GRUB entry. See
+`docs/QUADRA-OS-REFERENCES.md` for the full details.
+
+### Windows (Windows installer, no flash drive)
+
+```
+# In PowerShell on a Windows PC:
+.\installer\QUADRA-OS-Installer.cmd
+# or directly:
+powershell -NoProfile -ExecutionPolicy Bypass -File .\installer\Install-QUADRA-OS.ps1
+```
+
+The Windows installer is honest: QUADRA-OS is a bootable Linux OS, not a
+native Windows application. It installs the real artifacts (kernel,
+initramfs, desktop, brand assets, boot config, README) to `C:\QUADRA-OS`
+and writes an explicit boot configuration. It does **not** fabricate a
+Windows one-click boot — the verified boot paths are the bootable ISO
+(USB, GRUB/syslinux), the Linux installer (dual-boot) and a GRUB UEFI
+setup on the machine.
+
+### ISO (flash-drive / data-image path)
+
+`dist/QUADRA-OS.iso` is a valid ISO9660/Joliet image (22 MB) containing the
+kernel, initramfs, desktop, brand assets, boot config and README. It is a
+verified *data* image; QUADRA-OS boots through a bootloader (GRUB UEFI or
+syslinux) which is not available in this sandbox, so the ISO carries honest
+instructions rather than a fake boot menu. Flashing it to a USB drive and
+booting it in UEFI mode with a GRUB/syslinux bootloader is the verified
+path.
+
+### GitHub Release
+
+The tagged release `v1.0.0` contains: the ISO, the Linux and Windows
+installers, the kernel, the initramfs, the desktop binary, the brand
+assets and `CHECKSUMS.txt`. Download and extract, then run the installer
+of your platform.
 
 ## Boot flow
 
@@ -112,14 +174,18 @@ make -j2 bzImage
 cd desktop
 gcc -O2 -static -o quadra-desktop quadra-desktop.c -lm
 
-# 3. Initramfs
+# 3. Initramfs (busybox cpio; brand assets must be under rootfs/usr/share/quadra-os/brand/)
 cd ..
 cp desktop/quadra-desktop rootfs/bin/quadra-desktop
 cd rootfs
-find . | /usr/bin/busybox cpio -H newc -o | gzip -9 > ../dist/initramfs.cpio.gz
+find . -print0 | ./bin/busybox cpio -0 -o -H newc -R 0:0 | gzip -9 > ../dist/initramfs.cpio.gz
 
 # 4. Copy the kernel
 cp build/linux/arch/x86/boot/bzImage dist/bzImage
+
+# 5. Build the ISO (requires pycdlib)
+python3 -m pip install pycdlib   # one-time
+python3 tools/build-iso.py
 ```
 
 ## What's NOT in this build (yet)
@@ -128,18 +194,25 @@ cp build/linux/arch/x86/boot/bzImage dist/bzImage
   macOS (Darling) — still design targets; needs a much larger toolchain.
 - **Persistent rootfs** — boots via initramfs; a real rootfs can be
   layered on later.
-- **Installer image** — not produced yet.
 - **QEMU test** — the sandbox has no QEMU; the desktop is verified via
   headless PNG snapshots, not against a live framebuffer.
+- **ISO bootloader** — the ISO is a verified data image; booting it needs
+  a GRUB/syslinux bootloader that is not available here. The README inside
+  the ISO explains the verified boot path (GRUB UEFI / syslinux / Linux
+  installer).
+- **Windows dual-boot boot entry** — the Windows installer places the
+  artifacts on the disk honestly; it does not fabricate a Windows boot
+  entry. The verified paths are the ISO (USB) and the Linux installer.
 
 ## Known issues / limitations
 
-- **Signature enforcement is stubbed** — the kernel is built with
-  `CONFIG_SYSTEM_DATA_VERIFICATION=y` but no certificate is embedded
-  (`certs/system_certificates.o` is an empty stub) to keep the sandbox
-  build environment buildable without openssl. In a production build the
-  real certificate blob must be regenerated with `scripts/extract-cert`
-  + openssl.
+- **Signature enforcement is disabled** — this build is produced with
+  `CONFIG_SYSTEM_DATA_VERIFICATION`/`CONFIG_SYSTEM_TRUSTED_KEYRING` off
+  (and without the CFG80211/wireless stack that enabled them), so no
+  certificates are embedded and no openssl is required. This is a lean
+  reference build, not a production signed binary; a production build
+  should re-enable `CONFIG_SYSTEM_DATA_VERIFICATION` and regenerate the
+  certificate blob with `scripts/extract-cert` + openssl.
 - **No live framebuffer test** — the desktop is verified via
   `quadra-desktop --png` snapshots (PNG output at 800×480); the
   framebuffer code path (`/dev/fb0` mmap + bitfield blit) is written but

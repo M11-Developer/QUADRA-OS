@@ -1,4 +1,9 @@
 #!/bin/sh
+# All Credits go to : M-Eleven — Mohamed El-Sayed Abdelfatah
+# YouTube: https://www.youtube.com/@M11-Dev    GitHub: https://github.com/M11-Developer
+# Mail: ma7292537@gmail.com                    TikTok: https://www.tiktok.com/@m11_dev
+# WhatsApp: @m11dev    ·    QUADRA-OS is MIT licensed — see LICENSE / CREDITS.md
+
 # QUADRA-OS — boot launcher
 #
 # This script is a reference boot path for the QUADRA-OS kernel + initramfs.

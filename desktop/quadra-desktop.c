@@ -15,16 +15,24 @@
  *   ./quadra-desktop --png OUT [STATE]
  *
  * Build:  gcc -O2 -o quadra-desktop quadra-desktop.c -lm
- * GPL-2.0-or-later.
+ *
+ * All Credits go to : M-Eleven — Mohamed El-Sayed Abdelfatah
+ * YouTube: https://www.youtube.com/@M11-Dev    GitHub: https://github.com/M11-Developer
+ * Mail: ma7292537@gmail.com                    TikTok: https://www.tiktok.com/@m11_dev
+ * WhatsApp: @m11dev    ·    QUADRA-OS is MIT licensed — see LICENSE / CREDITS.md
  */
 
 #define _POSIX_C_SOURCE 200809L
 
+#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
+#include <limits.h>
+#include <linux/input.h>
 #include <math.h>
+#include <strings.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -59,35 +67,25 @@ struct fb_fix_screeninfo {
 #define FBIOGET_VSCREENINFO 0x4600u
 #define FBIOGET_FSCREENINFO 0x4602u
 
-struct input_event {
-    uint64_t time_sec;
-    uint64_t time_usec;
-    uint16_t type, code;
-    int32_t value;
-};
-#define EV_KEY 0x01
-#define EVIOCGID_DATA(fd) ioctl(fd, 0x80044502u, &(struct { unsigned type, code; }){0})
-#define F_CLOSE 0x05
-
 #include "font8x8.h"
 
 /* ---------------------------------------------------------------- */
 /* Colors                                                            */
 /* ---------------------------------------------------------------- */
-#define ACCENT      0x22d3ee
-#define ACCENT_DK   0x0e7490
+#define ACCENT      0x65d8ed
+#define ACCENT_DK   0x167d9b
 #define BG_DESKTOP  0x0b1220
-#define BG_WIN      0x141d30
-#define BG_WIN_HDR  0x0e1626
-#define BG_TOP      0x0a1120
-#define BG_DOCK     0x0d1424
-#define TEXT        0xe8edf7
-#define TEXT_DIM    0x8fa0bd
-#define TEXT_FAINT  0x55637d
-#define BORDER      0x263252
-#define STATUS_OK   0x34d399
-#define STATUS_WARN 0xfbbf24
-#define STATUS_ERR  0xef4444
+#define BG_WIN      0x18243a
+#define BG_WIN_HDR  0x26334b
+#define BG_TOP      0x101827
+#define BG_DOCK     0x25334a
+#define TEXT        0xf3f6ff
+#define TEXT_DIM    0xa9b6cd
+#define TEXT_FAINT  0x72819c
+#define BORDER      0x52627d
+#define STATUS_OK   0x43d9a3
+#define STATUS_WARN 0xf5bd4f
+#define STATUS_ERR  0xff6c6c
 
 static inline uint32_t rgb(uint8_t r, uint8_t g, uint8_t b) {
     return (uint32_t)r << 16 | (uint32_t)g << 8 | (uint32_t)b;
@@ -408,107 +406,277 @@ static void draw_wallpaper(Canvas *c, int grid) {
 /* ---------------------------------------------------------------- */
 /* Top bar                                                           */
 /* ---------------------------------------------------------------- */
+static void draw_quadra_mark(Canvas *c, int x, int y, int size) {
+    int gap = size / 9;
+    int tile = (size - gap) / 2;
+    rounded_rect(c, x, y, tile, tile, tile / 3, 0x22d3ee);
+    rounded_rect(c, x + tile + gap, y, tile, tile, tile / 3, 0x6366f1);
+    rounded_rect(c, x, y + tile + gap, tile, tile, tile / 3, 0x8b5cf6);
+    rounded_rect(c, x + tile + gap, y + tile + gap, tile, tile, tile / 3, 0x172554);
+    fill_rect(c, x + size - 2, y + size - 5, 4, 3, 0x22d3ee);
+}
+
 static void draw_topbar(Canvas *c, time_t t) {
-    fill_rect(c, 0, 0, c->w, 30, BG_TOP);
-    fill_rect(c, 0, 30, c->w, 1, 0x1e2a45);
+    fill_rect(c, 0, 0, c->w, 29, BG_TOP);
+    fill_rect(c, 0, 0, c->w, 1, 0x65748e);
+    fill_rect(c, 0, 28, c->w, 1, 0x3d4c66);
 
-    draw_text(c, 12, 10, "QUADRA-OS", 1, ACCENT);
-    draw_text(c, 12 + 81 + 4, 13, "v1.0", 1, TEXT_FAINT);
+    draw_quadra_mark(c, 11, 6, 16);
+    draw_text(c, 34, 10, "QUADRA", 1, TEXT);
+    draw_text(c, 96, 10, "File   Edit   View   Window   Help", 1, TEXT_DIM);
 
-    /* center clock */
     struct tm tmv;
     localtime_r(&t, &tmv);
-    char clk[16];
-    strftime(clk, sizeof(clk), "%H:%M:%S", &tmv);
-    draw_text(c, (c->w - text_width(clk, 1)) / 2, 9, clk, 1, TEXT);
-
-    /* right: battery + date */
-    char date[64];
-    strftime(date, sizeof(date), "%a %Y-%m-%d", &tmv);
-    int date_w = text_width(date, 1);
-    int bx = c->w - 12 - 24;
-    fill_rect(c, bx, 9, 20, 12, 0x1c2740);
-    fill_rect(c, bx + 1, 10, 16, 10, STATUS_OK);
-    fill_rect(c, bx + 21, 11, 3, 8, 0x1c2740);
-    draw_text(c, bx - 8 - date_w, 9, date, 1, TEXT_DIM);
+    char status[64];
+    strftime(status, sizeof(status), "x64   %a %b %d   %H:%M", &tmv);
+    int sw = text_width(status, 1);
+    draw_text(c, c->w - sw - 14, 10, status, 1, TEXT);
 }
 
 /* ---------------------------------------------------------------- */
 /* Dock                                                              */
 /* ---------------------------------------------------------------- */
+typedef enum { APP_TERMINAL = 0, APP_FILES, APP_TASKMGR, APP_SETTINGS, APP_ABOUT } AppKind;
+static int win_find(AppKind k);
 #define NUM_APPS 6
-typedef struct { const char *name; const char *glyph; uint32_t color; } AppDef;
+typedef struct { const char *name; uint32_t color; } AppDef;
 static const AppDef APPS[NUM_APPS] = {
-    { "Terminal",     ">", 0x22d3ee },
-    { "Files",        "f", 0xfbbf24 },
-    { "TaskMgr",      "T", 0x34d399 },
-    { "Settings",     "s", 0xa78bfa },
-    { "About",        "a", 0xf472b6 },
-    { "Start",        "Q", 0xffffff },
+    { "Terminal",     0x62d8a5 },
+    { "Files",        0xffc857 },
+    { "Task Manager", 0x4cb7ff },
+    { "Settings",     0xb69cff },
+    { "About",        0xff84ad },
+    { "Start",        0xffffff },
 };
-static int dock_h = 46;
+static const int DOCK_ORDER[NUM_APPS] = { 5, 1, 0, 2, 3, 4 };
+static int dock_h = 72;
 static int dock_index = 1;
 
-static void draw_dock(Canvas *c, int focus) {
-    fill_rect(c, 0, c->h - dock_h, c->w, dock_h, BG_DOCK);
-    fill_rect(c, 0, c->h - dock_h, c->w, 1, 0x1e2a45);
-
-    int n = NUM_APPS;
-    int gap = 10;
-    int iw = 34, ih = 34;
-    int total = n * iw + (n - 1) * gap;
-    int x = (c->w - total) / 2;
-    for (int i = 0; i < n; i++) {
-        int y = c->h - dock_h + (dock_h - ih - 4) / 2;
-        int focused = (i == focus);
-        uint32_t bg = focused ? 0x243252 : 0x171f31;
-        rounded_rect(c, x, y, iw, ih, 8, bg);
-        if (focused) {
-            rect_border(c, x, y, iw, ih, APPS[i].color);
-            fill_rect(c, x + 8, c->h - 6, iw - 16, 3, APPS[i].color);
-        }
-        draw_text_center(c, x, y + 12, iw, APPS[i].glyph, 1, APPS[i].color);
-        x += iw + gap;
+static void draw_app_icon(Canvas *c, int app, int x, int y, int size) {
+    uint32_t base = app == 1 ? 0x564a2a : app == 3 ? 0x3d315f : app == 4 ? 0x432b49 : 0x1d3b50;
+    rounded_rect(c, x, y, size, size, 10, base);
+    switch (app) {
+        case 0: /* Terminal */
+            rounded_rect(c, x + 6, y + 7, size - 12, size - 14, 4, 0x101722);
+            draw_text(c, x + 11, y + size / 2 - 4, ">_", 1, 0x7ce6bf);
+            break;
+        case 1: /* Files */
+            rounded_rect(c, x + 6, y + 12, size - 12, size - 19, 4, 0xf1b93f);
+            rounded_rect(c, x + 8, y + 8, size / 2, 8, 3, 0xffd36d);
+            break;
+        case 2: /* Task Manager */
+            rounded_rect(c, x + 7, y + 7, size - 14, size - 14, 4, 0x11283a);
+            fill_rect(c, x + 11, y + size - 14, 4, 7, 0x60d6c5);
+            fill_rect(c, x + 18, y + size - 19, 4, 12, 0x64a9ff);
+            fill_rect(c, x + 25, y + size - 24, 4, 17, 0xb69cff);
+            break;
+        case 3: /* Settings */
+            rounded_rect(c, x + 8, y + 8, size - 16, size - 16, 9, 0xd1c7ff);
+            rounded_rect(c, x + 14, y + 14, size - 28, size - 28, 6, 0x514374);
+            fill_rect(c, x + size / 2 - 2, y + 3, 4, 7, 0xd1c7ff);
+            fill_rect(c, x + size / 2 - 2, y + size - 10, 4, 7, 0xd1c7ff);
+            break;
+        case 4: /* About / QUADRA brand */
+            draw_quadra_mark(c, x + 7, y + 7, size - 14);
+            break;
+        case 5: /* Windows-friendly launcher tile */
+            rounded_rect(c, x + 8, y + 8, 10, 10, 3, 0x22d3ee);
+            rounded_rect(c, x + 21, y + 8, 10, 10, 3, 0x6366f1);
+            rounded_rect(c, x + 8, y + 21, 10, 10, 3, 0x8b5cf6);
+            rounded_rect(c, x + 21, y + 21, 10, 10, 3, 0xffffff);
+            break;
     }
+}
+
+static int dock_panel_x(const Canvas *c) {
+    int item = 42, gap = 7, pad = 12;
+    int width = NUM_APPS * item + (NUM_APPS - 1) * gap + pad * 2;
+    return (c->w - width) / 2;
+}
+
+static int dock_item_x(const Canvas *c, int position) {
+    int panel_x = dock_panel_x(c);
+    return panel_x + 12 + position * (42 + 7);
+}
+
+static void draw_dock(Canvas *c, int focus) {
+    const int item = 42, gap = 7, pad = 12, panel_h = 60;
+    int width = NUM_APPS * item + (NUM_APPS - 1) * gap + pad * 2;
+    int px = (c->w - width) / 2;
+    int py = c->h - panel_h - 12;
+    rounded_rect(c, px + 3, py + 4, width, panel_h, 16, 0x080c16);
+    rounded_rect(c, px, py, width, panel_h, 16, BG_DOCK);
+    rect_border(c, px, py, width, panel_h, 0x65758f);
+    fill_rect(c, px + 14, py + 1, width - 28, 1, 0x8290a7);
+
+    for (int p = 0; p < NUM_APPS; p++) {
+        int app = DOCK_ORDER[p];
+        int x = dock_item_x(c, p);
+        int y = py + 8;
+        int focused = (app == focus);
+        if (focused) {
+            rounded_rect(c, x - 2, y - 2, item + 4, item + 4, 12, 0x41516b);
+            rect_border(c, x - 2, y - 2, item + 4, item + 4, 0xa3b4cc);
+        }
+        draw_app_icon(c, app, x, y, item);
+
+        int running = (app < 5 && win_find((AppKind)app) >= 0);
+        if (running) rounded_rect(c, x + 18, py + 52, 6, 3, 2, APPS[app].color);
+
+        if (focused) {
+            int label_w = text_width(APPS[app].name, 1) + 14;
+            int label_x = x + (item - label_w) / 2;
+            if (label_x < 3) label_x = 3;
+            if (label_x + label_w > c->w - 3) label_x = c->w - label_w - 3;
+            rounded_rect(c, label_x, py - 20, label_w, 16, 6, 0x111a2a);
+            draw_text_center(c, label_x, py - 16, label_w, APPS[app].name, 1, TEXT);
+        }
+    }
+}
+
+static void dock_move(int delta) {
+    int pos = 0;
+    for (int i = 0; i < NUM_APPS; i++) if (DOCK_ORDER[i] == dock_index) pos = i;
+    pos = (pos + delta + NUM_APPS) % NUM_APPS;
+    dock_index = DOCK_ORDER[pos];
 }
 
 /* ---------------------------------------------------------------- */
 /* Windows                                                           */
 /* ---------------------------------------------------------------- */
-typedef enum { APP_TERMINAL = 0, APP_FILES, APP_TASKMGR, APP_SETTINGS, APP_ABOUT } AppKind;
 #define MAX_WINDOWS 5
 
 typedef struct {
     AppKind kind;
     int x, y, w, h;
+    int restore_x, restore_y, restore_w, restore_h;
     int open;
     int focused;
+    int minimized;
+    int maximized;
 } Window;
 static Window windows[MAX_WINDOWS];
+static int mouse_x = 400, mouse_y = 240;
+static int mouse_down = 0;
+static int mouse_visible = 0;
+static int drag_window = -1;
+static int welcome_open = 1;
+
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+#define FILES_MAX_ENTRIES 128
+typedef struct { char name[256]; int is_dir; } FileEntry;
+static FileEntry file_entries[FILES_MAX_ENTRIES];
+static int file_count = 0;
+static int files_sel = 0;
+static int files_sel_top = 0;
+static int files_last_click = -1;
+static long long files_last_click_ms = 0;
+static char files_path[PATH_MAX] = "/root";
+static void files_refresh(void);
+static void files_enter_selected(void);
 
 static int win_find(AppKind k) {
     for (int i = 0; i < MAX_WINDOWS; i++) if (windows[i].open && windows[i].kind == k) return i;
     return -1;
 }
 static int win_focused_idx(void) {
-    for (int i = 0; i < MAX_WINDOWS; i++) if (windows[i].open && windows[i].focused) return i;
+    for (int i = 0; i < MAX_WINDOWS; i++) if (windows[i].open && windows[i].focused && !windows[i].minimized) return i;
     return -1;
 }
+
+static int file_entry_compare(const void *a, const void *b) {
+    const FileEntry *ea = a, *eb = b;
+    if (ea->is_dir != eb->is_dir) return eb->is_dir - ea->is_dir;
+    return strcasecmp(ea->name, eb->name);
+}
+
+static void files_refresh(void) {
+    DIR *dir = opendir(files_path);
+    if (!dir && strcmp(files_path, "/root") == 0) {
+        strcpy(files_path, "/");
+        dir = opendir(files_path);
+    }
+    file_count = 0;
+    if (!dir) return;
+
+    struct dirent *de;
+    while ((de = readdir(dir)) != NULL && file_count < FILES_MAX_ENTRIES) {
+        if (strcmp(de->d_name, ".") == 0) continue;
+        FileEntry *entry = &file_entries[file_count];
+        snprintf(entry->name, sizeof(entry->name), "%s", de->d_name);
+        entry->is_dir = strcmp(de->d_name, "..") == 0;
+        if (!entry->is_dir) {
+            char full[PATH_MAX];
+            int n = snprintf(full, sizeof(full), "%s%s%s", files_path,
+                             strcmp(files_path, "/") == 0 ? "" : "/", de->d_name);
+            struct stat st;
+            if (n > 0 && (size_t)n < sizeof(full) && stat(full, &st) == 0)
+                entry->is_dir = S_ISDIR(st.st_mode);
+        }
+        file_count++;
+    }
+    closedir(dir);
+    qsort(file_entries, (size_t)file_count, sizeof(file_entries[0]), file_entry_compare);
+    if (file_count == 0) files_sel = files_sel_top = 0;
+    else if (files_sel >= file_count) files_sel = file_count - 1;
+}
+
+static void files_enter_selected(void) {
+    if (files_sel < 0 || files_sel >= file_count || !file_entries[files_sel].is_dir) return;
+    const char *name = file_entries[files_sel].name;
+    if (strcmp(name, "..") == 0) {
+        if (strcmp(files_path, "/") != 0) {
+            size_t len = strlen(files_path);
+            while (len > 1 && files_path[len - 1] == '/') files_path[--len] = 0;
+            char *slash = strrchr(files_path, '/');
+            if (slash == files_path) files_path[1] = 0;
+            else if (slash) *slash = 0;
+        }
+    } else {
+        size_t len = strlen(files_path);
+        size_t name_len = strlen(name);
+        if (len + name_len + 2 < sizeof(files_path)) {
+            if (strcmp(files_path, "/") == 0) strncat(files_path, name, sizeof(files_path) - len - 1);
+            else {
+                strncat(files_path, "/", sizeof(files_path) - len - 1);
+                strncat(files_path, name, sizeof(files_path) - strlen(files_path) - 1);
+            }
+        }
+    }
+    files_sel = 0;
+    files_sel_top = 0;
+    files_refresh();
+}
+
 static int win_open(AppKind k, Canvas *c) {
     int ex = win_find(k);
     if (ex >= 0) {
         for (int i = 0; i < MAX_WINDOWS; i++) windows[i].focused = 0;
         windows[ex].focused = 1;
+        windows[ex].minimized = 0;
+        if (k == APP_FILES) files_refresh();
         return ex;
     }
     for (int i = 0; i < MAX_WINDOWS; i++) {
         if (!windows[i].open) {
             for (int j = 0; j < MAX_WINDOWS; j++) windows[j].focused = 0;
-            windows[i].open = 1; windows[i].kind = k; windows[i].focused = 1;
-            int ww = c ? c->w * 3 / 5 : 480, wh = c ? c->h * 3 / 5 : 300;
-            windows[i].x = (c ? c->w - ww : 0) / 2 + i * 28 - 40;
-            windows[i].y = 40 + i * 20;
-            windows[i].w = ww; windows[i].h = wh;
+            windows[i].open = 1;
+            windows[i].kind = k;
+            windows[i].focused = 1;
+            windows[i].minimized = 0;
+            windows[i].maximized = 0;
+            int ww = c ? c->w * 3 / 5 : 480;
+            int wh = c ? c->h * 3 / 5 : 300;
+            int screen_w = c ? c->w : 800;
+            windows[i].w = ww;
+            windows[i].h = wh;
+            windows[i].x = (screen_w - ww) / 2 + (i - 2) * 14;
+            windows[i].y = 46 + i * 12;
+            if (windows[i].x < 8) windows[i].x = 8;
+            if (c && windows[i].x + ww > c->w - 8) windows[i].x = c->w - ww - 8;
+            if (k == APP_FILES) files_refresh();
             return i;
         }
     }
@@ -531,20 +699,23 @@ static const char *app_title(AppKind k) {
 
 static void draw_window(Canvas *c, int idx, time_t t) {
     Window *w = &windows[idx];
-    if (!w->open) return;
-    fill_rect(c, w->x + 5, w->y + 5, w->w, w->h, 0x05080f); /* shadow */
-    rounded_rect(c, w->x, w->y, w->w, w->h, 12, BG_WIN);
-    rect_border(c, w->x, w->y, w->w, w->h, w->focused ? ACCENT : BORDER);
+    if (!w->open || w->minimized) return;
 
-    fill_rect(c, w->x, w->y, w->w, 26, BG_WIN_HDR);
-    fill_rect(c, w->x, w->y + 25, w->w, 1, 0x1e2a45);
+    /* Floating glass-card treatment with a soft offset shadow. */
+    rounded_rect(c, w->x + 5, w->y + 7, w->w, w->h, 13, 0x070b15);
+    rounded_rect(c, w->x, w->y, w->w, w->h, 13, BG_WIN);
+    rect_border(c, w->x, w->y, w->w, w->h, w->focused ? 0x8bd9ef : BORDER);
+    fill_rect(c, w->x + 2, w->y + 1, w->w - 4, 1, 0x65758f);
 
-    /* traffic dots */
-    int dot_x = w->x + 15;
-    rounded_rect(c, dot_x - 4, w->y + 9, 8, 8, 4, 0xef4444);
-    rounded_rect(c, dot_x + 10, w->y + 9, 8, 8, 4, 0xf59e0b);
+    rounded_rect(c, w->x + 1, w->y + 1, w->w - 2, 27, 11, BG_WIN_HDR);
+    fill_rect(c, w->x + 1, w->y + 20, w->w - 2, 8, BG_WIN_HDR);
+    fill_rect(c, w->x + 1, w->y + 27, w->w - 2, 1, 0x3a4963);
 
-    draw_text(c, w->x + 34, w->y + 9, app_title(w->kind), 1, TEXT);
+    /* Familiar macOS-style traffic lights, all functional with a mouse. */
+    rounded_rect(c, w->x + 11, w->y + 9, 9, 9, 5, STATUS_ERR);
+    rounded_rect(c, w->x + 26, w->y + 9, 9, 9, 5, STATUS_WARN);
+    rounded_rect(c, w->x + 41, w->y + 9, 9, 9, 5, STATUS_OK);
+    draw_text_center(c, w->x + 56, w->y + 9, w->w - 112, app_title(w->kind), 1, TEXT);
 
     draw_app_content(c, idx, t);
 }
@@ -647,36 +818,30 @@ static void draw_terminal(Canvas *c, int wi, int xi, int yi, int w, int h) {
 /* ---------------------------------------------------------------- */
 /* Files                                                            */
 /* ---------------------------------------------------------------- */
-static int files_sel = 0;
-static int files_sel_top = 0;
-
 static void draw_files(Canvas *c, int wi, int xi, int yi, int w, int h, time_t t) {
-    (void)t;
-    fill_rect(c, xi, yi, w, h, rgb(0x0e, 0x16, 0x26));
-    draw_text(c, xi + 12, yi + 10, "Home  >  Documents  >  Projects", 1, TEXT_DIM);
+    (void)wi; (void)t;
+    fill_rect(c, xi, yi, w, h, rgb(0x10, 0x19, 0x29));
+    draw_text(c, xi + 12, yi + 10, "Location:", 1, TEXT_FAINT);
+    draw_text(c, xi + 88, yi + 10, files_path, 1, TEXT_DIM);
+    fill_rect(c, xi + 10, yi + 28, w - 20, 1, 0x33435d);
 
-    const char *entries[] = {
-        "Desktop", "Documents", "Downloads", "Pictures",
-        "Music", "quadra-os-boot.sh", "quadra-desktop.c", "README.md",
-        "LICENSE", ".gitignore", "index.html", "quadra-os-notes.txt",
-    };
-    int n = sizeof(entries) / sizeof(entries[0]);
-    int max_rows = (h - 40) / 22;
-    for (int i = 0; i < n && i < max_rows; i++) {
-        int idx = i + files_sel_top;
-        if (idx >= n) break;
-        int y = yi + 42 + i * 22;
-        int sel = (idx == files_sel);
-        if (sel) fill_rect(c, xi + 8, y - 3, w - 16, 20, 0x243252);
-        const char *e = entries[idx];
-        int is_dir = (e[strlen(e) - 1] != 0 && (e[strlen(e) - 1] == '/' || strchr("Documents Desktop Music Downloads Pictures", e[0])));
-        (void)is_dir;
-        draw_text(c, xi + 16, y, e, 1, sel ? TEXT : TEXT_DIM);
-        draw_text(c, xi + w - 90, y, idx % 2 ? ".sh  4.1 KB" : "folder", 1, TEXT_FAINT);
+    int max_rows = (h - 68) / 22;
+    if (max_rows < 1) max_rows = 1;
+    for (int row = 0; row < max_rows; row++) {
+        int idx = files_sel_top + row;
+        if (idx >= file_count) break;
+        int y = yi + 40 + row * 22;
+        int selected = idx == files_sel;
+        if (selected) rounded_rect(c, xi + 7, y - 4, w - 14, 20, 5, 0x34455f);
+        draw_text(c, xi + 16, y, file_entries[idx].is_dir ? "[DIR]" : "[FILE]", 1,
+                  file_entries[idx].is_dir ? 0xffd36d : 0x8bb9ff);
+        draw_text(c, xi + 74, y, file_entries[idx].name, 1, selected ? TEXT : TEXT_DIM);
     }
-    /* status bar */
-    draw_text(c, xi + 12, yi + h - 18, "12 items  ·  selected: ", 1, TEXT_FAINT);
-    if (files_sel < n) draw_text(c, xi + 12 + text_width("12 items  ·  selected: ", 1), yi + h - 18, entries[files_sel], 1, ACCENT);
+    if (file_count == 0) draw_text(c, xi + 16, yi + 48, "This folder is empty.", 1, TEXT_DIM);
+
+    char status[96];
+    snprintf(status, sizeof(status), "%d items | Up/Down select | Enter opens folders", file_count);
+    draw_text(c, xi + 12, yi + h - 18, status, 1, TEXT_FAINT);
 }
 
 /* ---------------------------------------------------------------- */
@@ -743,13 +908,13 @@ static void draw_taskmgr(Canvas *c, int wi, int xi, int yi, int w, int h, time_t
     snprintf(pct, sizeof(pct), "%d%%", load_pct);
     draw_text(c, bar_x + bar_w - 46, cpu_y + 14 + 3, pct, 1, TEXT);
 
-    draw_text(c, xi + 14, yi + h - 24, "Live · sampled every render", 1, TEXT_FAINT);
+    draw_text(c, xi + 14, yi + h - 24, "Live - sampled every render", 1, TEXT_FAINT);
 }
 
 /* ---------------------------------------------------------------- */
 /* Settings                                                          */
 /* ---------------------------------------------------------------- */
-static int settings_grid = 1;
+static int settings_grid = 0;
 static int settings_bright = 100;
 static int settings_scale = 3;
 
@@ -789,30 +954,19 @@ static void draw_settings(Canvas *c, int wi, int xi, int yi, int w, int h, time_
 /* About                                                            */
 /* ---------------------------------------------------------------- */
 static void draw_about(Canvas *c, int wi, int xi, int yi, int w, int h, time_t t) {
-    (void)t;
-    fill_rect(c, xi, yi, w, h, rgb(0x0d, 0x14, 0x26));
+    (void)wi; (void)t; (void)h;
+    fill_rect(c, xi, yi, w, h, rgb(0x11, 0x1b, 0x2b));
 
-    draw_text_center(c, xi, yi + 18, w, "QUADRA-OS", 2, ACCENT);
-    draw_text_center(c, xi, yi + 50, w, "A modern, lean, low-end-PC-friendly OS", 1, TEXT_DIM);
-
-    static const char *lines[] = {
-        "Kernel      : Linux 7.3.0",
-        "Desktop     : quadra-desktop (framebuffer)",
-        "Shell       : busybox 1.36.1",
-        "Architecture: x86_64",
-        "Build       : 2026-11-22",
-        "License     : GPL-2.0-or-later",
-    };
-    int y = yi + 82;
-    for (unsigned i = 0; i < sizeof(lines) / sizeof(lines[0]); i++) {
-        draw_text(c, xi + 24, y, lines[i], 1, TEXT);
-        y += 18;
-    }
-    draw_text(c, xi + 24, y + 8, "designed by Velotic Studios-style:", 1, TEXT_FAINT);
-    y += 22;
-    draw_text(c, xi + 24, y, "liquid-glass UX, live task manager,", 1, TEXT_FAINT);
-    y += 20;
-    draw_text(c, xi + 24, y, "live terminal and full-featured Files", 1, TEXT_FAINT);
+    draw_text_center(c, xi, yi + 10, w, "QUADRA-OS", 2, ACCENT);
+    draw_text_center(c, xi, yi + 39, w, "Mac-inspired shell | Linux 7.3 | x86_64", 1, TEXT_DIM);
+    draw_text(c, xi + 16, yi + 66, "Credits: M-Eleven", 1, 0x9ce7f2);
+    draw_text(c, xi + 16, yi + 84, "Mohamed El-Sayed Abdelfatah", 1, TEXT);
+    draw_text(c, xi + 16, yi + 106, "YouTube: youtube.com/@M11-Dev", 1, TEXT_DIM);
+    draw_text(c, xi + 16, yi + 124, "GitHub: github.com/M11-Developer", 1, TEXT_DIM);
+    draw_text(c, xi + 16, yi + 142, "Mail: ma7292537@gmail.com", 1, TEXT_DIM);
+    draw_text(c, xi + 16, yi + 160, "TikTok: @m11_dev  |  WhatsApp: @m11dev", 1, TEXT_DIM);
+    draw_text(c, xi + 16, yi + 184, "MIT covers all QUADRA-authored code and art.", 1, TEXT_FAINT);
+    draw_text(c, xi + 16, yi + 202, "Kernel and BusyBox keep GPL-2.0 upstream licenses.", 1, TEXT_FAINT);
 }
 
 static void draw_app_content(Canvas *c, int idx, time_t t) {
@@ -829,41 +983,315 @@ static void draw_app_content(Canvas *c, int idx, time_t t) {
 }
 
 /* ---------------------------------------------------------------- */
-/* Start menu                                                       */
+/* Start menu / app launcher                                        */
 /* ---------------------------------------------------------------- */
 static int start_open = 0;
-static int start_sel = 5;
+static int start_sel = 0;
 static char start_query[64] = {0};
-static int start_sel_prev = 5;
+static int start_visible[NUM_APPS] = { 0, 1, 2, 3, 4 };
+static int start_visible_count = 5;
+
+static int app_matches_query(const char *name, const char *query) {
+    if (!query || !query[0]) return 1;
+    size_t qlen = strlen(query);
+    size_t nlen = strlen(name);
+    if (qlen > nlen) return 0;
+    for (size_t i = 0; i + qlen <= nlen; i++) {
+        size_t j = 0;
+        while (j < qlen && tolower((unsigned char)name[i + j]) == tolower((unsigned char)query[j])) j++;
+        if (j == qlen) return 1;
+    }
+    return 0;
+}
+
+static void start_rebuild_filter(void) {
+    start_visible_count = 0;
+    for (int i = 0; i < 5; i++) {
+        if (app_matches_query(APPS[i].name, start_query))
+            start_visible[start_visible_count++] = i;
+    }
+    if (start_sel >= start_visible_count) start_sel = start_visible_count ? start_visible_count - 1 : 0;
+}
+
+static int start_menu_bounds(const Canvas *c, int *px, int *py, int *pw, int *ph) {
+    *pw = c->w * 11 / 20;
+    if (*pw < 360) *pw = c->w - 28;
+    *ph = c->h * 19 / 30;
+    if (*ph < 260) *ph = c->h - 56;
+    *px = (c->w - *pw) / 2;
+    *py = (c->h - *ph) / 2;
+    return 1;
+}
+
+static int start_item_bounds(const Canvas *c, int pos, int *x, int *y, int *w, int *h) {
+    int px, py, pw, ph;
+    start_menu_bounds(c, &px, &py, &pw, &ph);
+    (void)ph;
+    int gx = px + 24, gy = py + 102;
+    int gap = 10, ch = 42;
+    int cw = (pw - 48 - gap) / 2;
+    *x = gx + (pos % 2) * (cw + gap);
+    *y = gy + (pos / 2) * (ch + 8);
+    *w = cw; *h = ch;
+    return pos >= 0 && pos < start_visible_count;
+}
 
 static void draw_start_menu(Canvas *c, int focus) {
     (void)focus;
-    int pw = c->w * 11 / 20, ph = c->h * 19 / 30;
-    int px = (c->w - pw) / 2, py = (c->h - ph) / 2;
+    int px, py, pw, ph;
+    start_menu_bounds(c, &px, &py, &pw, &ph);
 
-    fill_rect(c, 0, 0, c->w, c->h, 0x060a15);
-    rounded_rect(c, px, py, pw, ph, 16, 0x101a30);
-    rect_border(c, px, py, pw, ph, ACCENT);
+    fill_rect(c, 0, 0, c->w, c->h, 0x09111e);
+    rounded_rect(c, px + 4, py + 6, pw, ph, 18, 0x050a12);
+    rounded_rect(c, px, py, pw, ph, 18, 0x1d2a40);
+    rect_border(c, px, py, pw, ph, 0x71829f);
+    fill_rect(c, px + 14, py + 1, pw - 28, 1, 0x9aa8bd);
 
-    draw_text(c, px + 28, py + 20, "QUADRA-OS", 2, ACCENT);
-    draw_text(c, px + 28, py + 48, "Search apps", 1, TEXT_FAINT);
+    draw_quadra_mark(c, px + 24, py + 17, 20);
+    draw_text(c, px + 53, py + 23, "QUADRA Launcher", 1, TEXT);
+    draw_text(c, px + 24, py + 45, "Simple apps, familiar controls", 1, TEXT_DIM);
 
-    rounded_rect(c, px + 28, py + 58, pw - 56, 26, 8, 0x1c2740);
-    rect_border(c, px + 28, py + 58, pw - 56, 26, BORDER);
-    draw_text(c, px + 40, py + 66, start_query[0] ? start_query : "Type to filter apps...", 1, TEXT_DIM);
+    rounded_rect(c, px + 24, py + 63, pw - 48, 28, 9, 0x101a2b);
+    rect_border(c, px + 24, py + 63, pw - 48, 28, 0x586985);
+    draw_text(c, px + 36, py + 73, start_query[0] ? start_query : "Search apps...", 1, start_query[0] ? TEXT : TEXT_FAINT);
 
-    int gx = px + 28, gy = py + 96;
-    int cw = (pw - 56 - 12) / 2, ch = 42;
-    for (int i = 0; i < NUM_APPS; i++) {
-        int cx = gx + (i % 2) * (cw + 12);
-        int cy = gy + (i / 2) * (ch + 8);
-        int focused = (i == start_sel);
-        rounded_rect(c, cx, cy, cw, ch, 10, focused ? 0x243252 : 0x172033);
-        if (focused) rect_border(c, cx, cy, cw, ch, APPS[i].color);
-        draw_text(c, cx + 16, cy + 12, APPS[i].glyph, 1, APPS[i].color);
-        draw_text(c, cx + 38, cy + 12, APPS[i].name, 1, focused ? TEXT : TEXT_DIM);
+    if (start_visible_count == 0) {
+        draw_text(c, px + 28, py + 118, "No apps match. Try another search.", 1, TEXT_DIM);
     }
-    draw_text(c, px + 28, py + ph - 22, "Esc: close   arrows: navigate   Enter: open", 1, TEXT_FAINT);
+    for (int pos = 0; pos < start_visible_count; pos++) {
+        int x, y, w, h;
+        start_item_bounds(c, pos, &x, &y, &w, &h);
+        int app = start_visible[pos];
+        int selected = (pos == start_sel);
+        rounded_rect(c, x, y, w, h, 11, selected ? 0x34455f : 0x243249);
+        if (selected) rect_border(c, x, y, w, h, APPS[app].color);
+        draw_app_icon(c, app, x + 8, y + 5, 32);
+        draw_text(c, x + 50, y + 16, APPS[app].name, 1, selected ? TEXT : TEXT_DIM);
+    }
+    draw_text(c, px + 24, py + ph - 21, "Type to search  |  Enter opens  |  Esc closes", 1, TEXT_FAINT);
+}
+
+static int point_in_rect(int x, int y, int rx, int ry, int rw, int rh) {
+    return x >= rx && y >= ry && x < rx + rw && y < ry + rh;
+}
+
+static void launcher_show(void) {
+    start_open = 1;
+    start_query[0] = 0;
+    start_sel = 0;
+    start_rebuild_filter();
+}
+
+static void focus_window(int idx) {
+    for (int i = 0; i < MAX_WINDOWS; i++) windows[i].focused = 0;
+    if (idx >= 0 && windows[idx].open && !windows[idx].minimized)
+        windows[idx].focused = 1;
+}
+
+static void close_focused_window(void) {
+    int idx = win_focused_idx();
+    if (idx < 0) return;
+    windows[idx].open = 0;
+    windows[idx].focused = 0;
+    for (int i = MAX_WINDOWS - 1; i >= 0; i--) {
+        if (windows[i].open && !windows[i].minimized) {
+            windows[i].focused = 1;
+            break;
+        }
+    }
+}
+
+static void open_app_from_launcher(int app, Canvas *c) {
+    if (app < 0 || app >= 5) return;
+    win_open((AppKind)app, c);
+    dock_index = app;
+    start_open = 0;
+}
+
+static void draw_welcome(Canvas *c) {
+    int pw = c->w * 3 / 5;
+    if (pw < 420) pw = c->w - 32;
+    int ph = 218;
+    if (ph > c->h - 48) ph = c->h - 48;
+    int px = (c->w - pw) / 2;
+    int py = (c->h - ph) / 2;
+
+    fill_rect(c, 0, 0, c->w, c->h, 0x101a2b);
+    rounded_rect(c, px + 4, py + 6, pw, ph, 18, 0x080d17);
+    rounded_rect(c, px, py, pw, ph, 18, 0x24334b);
+    rect_border(c, px, py, pw, ph, 0x788aa7);
+    draw_quadra_mark(c, px + 24, py + 22, 30);
+    draw_text(c, px + 66, py + 25, "Welcome to QUADRA-OS", 1, TEXT);
+    draw_text(c, px + 24, py + 67, "Mac-inspired look, Windows-friendly controls.", 1, TEXT_DIM);
+    draw_text(c, px + 24, py + 94, "Start or press Win to search for apps.", 1, TEXT);
+    draw_text(c, px + 24, py + 116, "Alt+F4 closes a window.", 1, TEXT);
+    draw_text(c, px + 24, py + 138, "Ctrl+Shift+Esc opens Task Manager.", 1, TEXT);
+    draw_text(c, px + 24, py + 160, "Linux base; other app layers are not bundled.", 1, TEXT_FAINT);
+
+    int bw = 126, bh = 30;
+    int bx = px + pw - bw - 22, by = py + ph - bh - 16;
+    rounded_rect(c, bx, by, bw, bh, 10, 0x147c9a);
+    rect_border(c, bx, by, bw, bh, 0x9de7f2);
+    draw_text_center(c, bx, by + 11, bw, "Enter desktop", 1, TEXT);
+}
+
+static void draw_mouse_pointer(Canvas *c) {
+    if (!mouse_visible) return;
+    for (int row = 0; row < 14; row++) {
+        int width = row / 2 + 1;
+        if (width > 8) width = 8;
+        for (int col = 0; col < width; col++) {
+            uint32_t color = (col == 0 || col == width - 1 || row == 13) ? 0x080b10 : 0xf7f8ff;
+            px(c, mouse_x + col, mouse_y + row, color);
+        }
+    }
+    for (int i = 0; i < 5; i++) px(c, mouse_x + 5 + i, mouse_y + 9 + i, 0x080b10);
+}
+
+static void mouse_move(Canvas *c, int dx, int dy) {
+    mouse_x += dx;
+    mouse_y += dy;
+    if (mouse_x < 0) mouse_x = 0;
+    if (mouse_y < 0) mouse_y = 0;
+    if (mouse_x >= c->w) mouse_x = c->w - 1;
+    if (mouse_y >= c->h) mouse_y = c->h - 1;
+
+    if (mouse_down && drag_window >= 0 && windows[drag_window].open && !windows[drag_window].maximized) {
+        Window *w = &windows[drag_window];
+        w->x += dx; w->y += dy;
+        if (w->x < 0) w->x = 0;
+        if (w->x + w->w > c->w) w->x = c->w - w->w;
+        if (w->y < 30) w->y = 30;
+        if (w->y + w->h > c->h - dock_h) w->y = c->h - dock_h - w->h;
+    }
+}
+
+static void toggle_maximize(Window *w, Canvas *c) {
+    if (!w->maximized) {
+        w->restore_x = w->x; w->restore_y = w->y;
+        w->restore_w = w->w; w->restore_h = w->h;
+        w->x = 10; w->y = 34;
+        w->w = c->w - 20; w->h = c->h - dock_h - 48;
+        w->maximized = 1;
+    } else {
+        w->x = w->restore_x; w->y = w->restore_y;
+        w->w = w->restore_w; w->h = w->restore_h;
+        w->maximized = 0;
+    }
+}
+
+static void mouse_press(Canvas *c) {
+    if (welcome_open) {
+        int pw = c->w * 3 / 5;
+        if (pw < 420) pw = c->w - 32;
+        int ph = c->h - 48 < 218 ? c->h - 48 : 218;
+        int px = (c->w - pw) / 2, py = (c->h - ph) / 2;
+        int bx = px + pw - 126 - 22, by = py + ph - 30 - 16;
+        welcome_open = 0;
+        if (point_in_rect(mouse_x, mouse_y, bx, by, 126, 30)) launcher_show();
+        return;
+    }
+
+    if (start_open) {
+        int px, py, pw, ph;
+        start_menu_bounds(c, &px, &py, &pw, &ph);
+        if (!point_in_rect(mouse_x, mouse_y, px, py, pw, ph)) {
+            start_open = 0;
+            return;
+        }
+        for (int pos = 0; pos < start_visible_count; pos++) {
+            int x, y, w, h;
+            start_item_bounds(c, pos, &x, &y, &w, &h);
+            if (point_in_rect(mouse_x, mouse_y, x, y, w, h)) {
+                start_sel = pos;
+                open_app_from_launcher(start_visible[pos], c);
+                return;
+            }
+        }
+        return;
+    }
+
+    /* The floating dock keeps a Windows-like Start launcher at the left. */
+    int panel_y = c->h - 60 - 12;
+    for (int pos = 0; pos < NUM_APPS; pos++) {
+        int x = dock_item_x(c, pos);
+        int app = DOCK_ORDER[pos];
+        if (point_in_rect(mouse_x, mouse_y, x - 2, panel_y + 6, 46, 46)) {
+            dock_index = app;
+            if (app == 5) launcher_show();
+            else win_open((AppKind)app, c);
+            return;
+        }
+    }
+
+    /* Focus the window under the pointer; its traffic lights work like a Mac. */
+    for (int pass = 0; pass < 2; pass++) {
+        for (int i = MAX_WINDOWS - 1; i >= 0; i--) {
+            Window *w = &windows[i];
+            if (!w->open || w->minimized || (!!w->focused != (pass == 0))) continue;
+            if (!point_in_rect(mouse_x, mouse_y, w->x, w->y, w->w, w->h)) continue;
+            focus_window(i);
+            if (mouse_y < w->y + 28) {
+                if (point_in_rect(mouse_x, mouse_y, w->x + 8, w->y + 5, 15, 18)) {
+                    w->open = 0;
+                    w->focused = 0;
+                    drag_window = -1;
+                } else if (point_in_rect(mouse_x, mouse_y, w->x + 23, w->y + 5, 15, 18)) {
+                    w->minimized = 1;
+                    w->focused = 0;
+                    drag_window = -1;
+                } else if (point_in_rect(mouse_x, mouse_y, w->x + 38, w->y + 5, 15, 18)) {
+                    toggle_maximize(w, c);
+                    drag_window = -1;
+                } else {
+                    drag_window = i;
+                }
+            } else if (w->kind == APP_FILES) {
+                int list_y = w->y + 34 + 40;
+                int row = (mouse_y - list_y) / 22;
+                int visible_rows = (w->h - 42 - 68) / 22;
+                int idx = files_sel_top + row;
+                if (mouse_y >= list_y && row >= 0 && row < visible_rows && idx < file_count) {
+                    struct timespec now;
+                    clock_gettime(CLOCK_MONOTONIC, &now);
+                    long long now_ms = (long long)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+                    if (files_last_click == idx && now_ms - files_last_click_ms < 500) {
+                        files_sel = idx;
+                        files_enter_selected();
+                        files_last_click = -1;
+                    } else {
+                        files_sel = idx;
+                        files_last_click = idx;
+                        files_last_click_ms = now_ms;
+                    }
+                }
+            }
+            return;
+        }
+    }
+}
+
+static void mouse_button(Canvas *c, int pressed) {
+    if (pressed) {
+        mouse_down = 1;
+        mouse_press(c);
+    } else {
+        mouse_down = 0;
+        drag_window = -1;
+    }
+}
+
+static void apply_brightness(Canvas *c) {
+    if (settings_bright >= 100) return;
+    int level = settings_bright < 0 ? 0 : settings_bright;
+    size_t count = (size_t)c->w * (size_t)c->h;
+    for (size_t i = 0; i < count; i++) {
+        uint32_t p = c->buf[i];
+        uint32_t r = (((p >> 16) & 0xff) * (unsigned)level) / 100;
+        uint32_t g = (((p >> 8) & 0xff) * (unsigned)level) / 100;
+        uint32_t b = ((p & 0xff) * (unsigned)level) / 100;
+        c->buf[i] = (r << 16) | (g << 8) | b;
+    }
 }
 
 /* ---------------------------------------------------------------- */
@@ -872,94 +1300,172 @@ static void draw_start_menu(Canvas *c, int focus) {
 static void render(Canvas *c, time_t t, int grid) {
     draw_wallpaper(c, grid);
     draw_topbar(c, t);
-    for (int i = 0; i < MAX_WINDOWS; i++) draw_window(c, i, t);
+    /* Focused window is painted last so clicking it brings it to the front. */
+    for (int i = 0; i < MAX_WINDOWS; i++)
+        if (windows[i].open && !windows[i].focused) draw_window(c, i, t);
+    for (int i = 0; i < MAX_WINDOWS; i++)
+        if (windows[i].open && windows[i].focused) draw_window(c, i, t);
     draw_dock(c, dock_index);
     if (start_open) draw_start_menu(c, start_sel);
+    if (welcome_open) draw_welcome(c);
+    apply_brightness(c);
+    draw_mouse_pointer(c);
 }
 
 /* ---------------------------------------------------------------- */
-/* Keyboard                                                          */
+/* Keyboard + input events                                            */
 /* ---------------------------------------------------------------- */
-static int scancode_to_char(uint16_t sc, int shift) {
-    switch (sc) {
-        case 0x1e: return shift ? 'A' : 'a'; case 0x30: return shift ? 'B' : 'b';
-        case 0x2e: return shift ? 'C' : 'c'; case 0x20: return shift ? 'D' : 'd';
-        case 0x12: return shift ? 'E' : 'e'; case 0x21: return shift ? 'F' : 'f';
-        case 0x22: return shift ? 'G' : 'g'; case 0x23: return shift ? 'H' : 'h';
-        case 0x17: return shift ? 'I' : 'i'; case 0x24: return shift ? 'J' : 'j';
-        case 0x25: return shift ? 'K' : 'k'; case 0x26: return shift ? 'L' : 'l';
-        case 0x32: return shift ? 'M' : 'm'; case 0x31: return shift ? 'N' : 'n';
-        case 0x18: return shift ? 'O' : 'o'; case 0x19: return shift ? 'P' : 'p';
-        case 0x10: return shift ? 'Q' : 'q'; case 0x13: return shift ? 'R' : 'r';
-        case 0x1f: return shift ? 'S' : 's'; case 0x14: return shift ? 'T' : 't';
-        case 0x16: return shift ? 'U' : 'u'; case 0x2f: return shift ? 'V' : 'v';
-        case 0x11: return shift ? 'W' : 'w'; case 0x2d: return shift ? 'X' : 'x';
-        case 0x15: return shift ? 'Y' : 'y'; case 0x2c: return shift ? 'Z' : 'z';
-        case 0x02: return shift ? '!' : '1';
-        case 0x03: return shift ? '@' : '2';
-        case 0x04: return shift ? '#' : '3';
-        case 0x05: return shift ? '$' : '4';
-        case 0x06: return shift ? '%' : '5';
-        case 0x07: return shift ? '^' : '6';
-        case 0x08: return shift ? '&' : '7';
-        case 0x09: return shift ? '*' : '8';
-        case 0x0a: return shift ? '(' : '9';
-        case 0x0b: return shift ? ')' : '0';
-        case 0x0c: return shift ? '_' : '-';
-        case 0x0d: return shift ? '+' : '=';
-        case 0x39: return shift ? ':' : ';';
-        case 0x38: return shift ? '<' : ',';
-        case 0x3a: return shift ? '>' : '.';
-        case 0x29: return shift ? '?' : '/';
-        case 0x1c: return ' ';
-        case 0x28: return '\n';
-        case 0x2a: return '\b';
-        case 0x0f: return '\t';
-        case 0x0e: return shift ? '~' : '`';
+static int keycode_to_char(uint16_t code, int shift) {
+    switch (code) {
+        case KEY_A: return shift ? 'A' : 'a'; case KEY_B: return shift ? 'B' : 'b';
+        case KEY_C: return shift ? 'C' : 'c'; case KEY_D: return shift ? 'D' : 'd';
+        case KEY_E: return shift ? 'E' : 'e'; case KEY_F: return shift ? 'F' : 'f';
+        case KEY_G: return shift ? 'G' : 'g'; case KEY_H: return shift ? 'H' : 'h';
+        case KEY_I: return shift ? 'I' : 'i'; case KEY_J: return shift ? 'J' : 'j';
+        case KEY_K: return shift ? 'K' : 'k'; case KEY_L: return shift ? 'L' : 'l';
+        case KEY_M: return shift ? 'M' : 'm'; case KEY_N: return shift ? 'N' : 'n';
+        case KEY_O: return shift ? 'O' : 'o'; case KEY_P: return shift ? 'P' : 'p';
+        case KEY_Q: return shift ? 'Q' : 'q'; case KEY_R: return shift ? 'R' : 'r';
+        case KEY_S: return shift ? 'S' : 's'; case KEY_T: return shift ? 'T' : 't';
+        case KEY_U: return shift ? 'U' : 'u'; case KEY_V: return shift ? 'V' : 'v';
+        case KEY_W: return shift ? 'W' : 'w'; case KEY_X: return shift ? 'X' : 'x';
+        case KEY_Y: return shift ? 'Y' : 'y'; case KEY_Z: return shift ? 'Z' : 'z';
+        case KEY_1: return shift ? '!' : '1'; case KEY_2: return shift ? '@' : '2';
+        case KEY_3: return shift ? '#' : '3'; case KEY_4: return shift ? '$' : '4';
+        case KEY_5: return shift ? '%' : '5'; case KEY_6: return shift ? '^' : '6';
+        case KEY_7: return shift ? '&' : '7'; case KEY_8: return shift ? '*' : '8';
+        case KEY_9: return shift ? '(' : '9'; case KEY_0: return shift ? ')' : '0';
+        case KEY_MINUS: return shift ? '_' : '-'; case KEY_EQUAL: return shift ? '+' : '=';
+        case KEY_LEFTBRACE: return shift ? '{' : '['; case KEY_RIGHTBRACE: return shift ? '}' : ']';
+        case KEY_BACKSLASH: return shift ? '|' : '\\';
+        case KEY_SEMICOLON: return shift ? ':' : ';';
+        case KEY_APOSTROPHE: return shift ? '"' : '\'';
+        case KEY_GRAVE: return shift ? '~' : '`';
+        case KEY_COMMA: return shift ? '<' : ',';
+        case KEY_DOT: return shift ? '>' : '.';
+        case KEY_SLASH: return shift ? '?' : '/';
+        case KEY_SPACE: return ' ';
+        case KEY_ENTER: return '\n';
+        case KEY_BACKSPACE: return '\b';
+        case KEY_TAB: return '\t';
+        default: return 0;
     }
-    return 0;
 }
 
-static void handle_key(uint16_t code, int shift) {
+static void cycle_window_focus(void) {
+    int cur = win_focused_idx();
+    int start = cur < 0 ? 0 : (cur + 1) % MAX_WINDOWS;
+    for (int n = 0; n < MAX_WINDOWS; n++) {
+        int i = (start + n) % MAX_WINDOWS;
+        if (windows[i].open && !windows[i].minimized) {
+            focus_window(i);
+            return;
+        }
+    }
+}
+
+static void handle_key(Canvas *c, uint16_t code, int shift, int ctrl, int alt, int meta) {
+    if (ctrl && shift && code == KEY_ESC) {
+        welcome_open = 0;
+        start_open = 0;
+        win_open(APP_TASKMGR, c);
+        dock_index = APP_TASKMGR;
+        return;
+    }
+    if (meta && code == KEY_E) {
+        welcome_open = 0;
+        start_open = 0;
+        win_open(APP_FILES, c);
+        dock_index = APP_FILES;
+        return;
+    }
+    if ((alt && code == KEY_F4) || (ctrl && code == KEY_W)) {
+        close_focused_window();
+        return;
+    }
+    if (ctrl && alt && code == KEY_T) {
+        welcome_open = 0;
+        win_open(APP_TERMINAL, c);
+        dock_index = APP_TERMINAL;
+        return;
+    }
+    if (code == KEY_LEFTMETA || code == KEY_RIGHTMETA) {
+        welcome_open = 0;
+        if (start_open) start_open = 0;
+        else launcher_show();
+        return;
+    }
+    if (ctrl && code == KEY_ESC) {
+        welcome_open = 0;
+        if (start_open) start_open = 0;
+        else launcher_show();
+        return;
+    }
+
+    if (welcome_open) {
+        if (code == KEY_ESC || code == KEY_ENTER) welcome_open = 0;
+        return;
+    }
+
     if (start_open) {
         switch (code) {
-            case 0x1c: /* Enter */
-                if (start_sel == 5) { start_open = 0; }
-                else { win_open((AppKind)start_sel, NULL); start_open = 0; dock_index = start_sel; }
+            case KEY_ENTER:
+                if (start_visible_count > 0 && start_sel < start_visible_count)
+                    open_app_from_launcher(start_visible[start_sel], c);
                 return;
-            case 0x1d: /* Esc */
-                start_open = 0; return;
-            case 0x01: /* up */
-                start_sel -= 2; if (start_sel < 0) start_sel = NUM_APPS - 2; return;
-            case 0x03: /* down */
-                start_sel += 2; if (start_sel >= NUM_APPS) start_sel = 0; return;
-            case 0x02: /* left */
-                if (start_sel % 2 == 1) start_sel -= 1; return;
-            case 0x04: /* right */
-                if (start_sel % 2 == 0) start_sel += 1; return;
-            case 0x0f: /* backspace */
-                if (strlen(start_query) > 0) start_query[strlen(start_query) - 1] = 0;
+            case KEY_ESC:
+                start_open = 0;
                 return;
-            default:
-                int ch = scancode_to_char(code, shift);
+            case KEY_UP:
+                if (start_visible_count > 0) start_sel = (start_sel - 2 + start_visible_count) % start_visible_count;
+                return;
+            case KEY_DOWN:
+                if (start_visible_count > 0) start_sel = (start_sel + 2) % start_visible_count;
+                return;
+            case KEY_LEFT:
+                if (start_visible_count > 0) start_sel = (start_sel - 1 + start_visible_count) % start_visible_count;
+                return;
+            case KEY_RIGHT:
+                if (start_visible_count > 0) start_sel = (start_sel + 1) % start_visible_count;
+                return;
+            case KEY_BACKSPACE: {
+                size_t len = strlen(start_query);
+                if (len) start_query[len - 1] = 0;
+                start_rebuild_filter();
+                return;
+            }
+            default: {
+                int ch = keycode_to_char(code, shift);
                 if (ch && ch != '\n' && ch != '\t') {
-                    size_t l = strlen(start_query);
-                    if (l < sizeof(start_query) - 1) {
-                        start_query[l++] = (char)ch;
-                        start_query[l] = 0;
+                    size_t len = strlen(start_query);
+                    if (len < sizeof(start_query) - 1) {
+                        start_query[len++] = (char)ch;
+                        start_query[len] = 0;
+                        start_rebuild_filter();
                     }
                 }
                 return;
+            }
         }
+    }
+
+    if (code == KEY_ESC && win_focused_idx() >= 0) {
+        close_focused_window();
+        return;
+    }
+    if (code == KEY_TAB) {
+        cycle_window_focus();
+        return;
     }
 
     int wi = win_focused_idx();
     if (wi >= 0) {
         Window *w = &windows[wi];
         if (w->kind == APP_TERMINAL) {
-            int ch = scancode_to_char(code, shift);
-            if (ch == '\b') { if (term.cmd_len > 0) { term.cmd_len--; term.cmd[term.cmd_len] = 0; } }
-            else if (ch == '\n') {
+            int ch = keycode_to_char(code, shift);
+            if (ch == '\b') {
+                if (term.cmd_len > 0) { term.cmd_len--; term.cmd[term.cmd_len] = 0; }
+            } else if (ch == '\n') {
                 term.cmd[term.cmd_len] = 0;
                 term_run_capture(term.cmd);
                 term.cmd_len = 0; term.cmd[0] = 0;
@@ -970,93 +1476,111 @@ static void handle_key(uint16_t code, int shift) {
             return;
         }
         if (w->kind == APP_FILES) {
-            if (code == 0x01) { if (files_sel > 0) { files_sel--; if (files_sel < files_sel_top) files_sel_top = files_sel; } }
-            if (code == 0x03) { if (files_sel < 11) { files_sel++; } }
-            if (code == 0x1c) { /* no-op */ }
+            if (code == KEY_UP && files_sel > 0) files_sel--;
+            if (code == KEY_DOWN && files_sel + 1 < file_count) files_sel++;
+            if (files_sel < files_sel_top) files_sel_top = files_sel;
+            if (files_sel >= files_sel_top + 8) files_sel_top = files_sel - 7;
+            if (code == KEY_ENTER) files_enter_selected();
+            if (code == KEY_BACKSPACE && strcmp(files_path, "/") != 0) {
+                size_t len = strlen(files_path);
+                while (len > 1 && files_path[len - 1] == '/') files_path[--len] = 0;
+                char *slash = strrchr(files_path, '/');
+                if (slash == files_path) files_path[1] = 0;
+                else if (slash) *slash = 0;
+                files_sel = files_sel_top = 0;
+                files_refresh();
+            }
             return;
         }
         if (w->kind == APP_SETTINGS) {
-            if (code == 0x01) { if (settings_scale > 1) settings_scale--; }
-            if (code == 0x03) { if (settings_scale < 4) settings_scale++; }
-            if (code == 0x0f) { if (settings_bright > 0) settings_bright -= 3; }
-            if (code == 0x02 /* left = - */) { if (settings_bright > 0) settings_bright -= 3; }
-            if (code == 0x04 /* right = + */) { if (settings_bright < 100) settings_bright += 3; }
-            if (code == 0x1c) { /* Enter toggles grid */ settings_grid = !settings_grid; aurora_on = settings_grid; }
+            if (code == KEY_UP && settings_scale > 1) settings_scale--;
+            if (code == KEY_DOWN && settings_scale < 4) settings_scale++;
+            if (code == KEY_LEFT && settings_bright > 0) settings_bright -= 5;
+            if (code == KEY_RIGHT && settings_bright < 100) settings_bright += 5;
+            if (code == KEY_G || code == KEY_ENTER) settings_grid = !settings_grid;
             return;
         }
-        if (w->kind == APP_TASKMGR) {
-            if (code == 0x1d /* Esc */) { w->open = 0; w->focused = 0; return; }
-            /* arrows do nothing */
-            return;
-        }
-        if (w->kind == APP_ABOUT) {
-            if (code == 0x1d) { w->open = 0; w->focused = 0; return; }
-            return;
-        }
+        return;
     }
 
-    /* global navigation */
+    /* Global navigation remains usable without a mouse. */
     switch (code) {
-        case 0x1c: /* Enter */
-            if (dock_index == 5) start_open = 1;
-            else if (dock_index >= 0 && dock_index < NUM_APPS) win_open((AppKind)dock_index, NULL);
+        case KEY_ENTER:
+            if (dock_index == 5) launcher_show();
+            else win_open((AppKind)dock_index, c);
             return;
-        case 0x02: /* left */
-            dock_index = (dock_index - 1 + NUM_APPS) % NUM_APPS; return;
-        case 0x04: /* right */
-            dock_index = (dock_index + 1) % NUM_APPS; return;
-        case 0x03: /* down */
-            dock_index = (dock_index + 1) % NUM_APPS; return;
-        case 0x01: /* up */
-            /* nothing at desktop level */ return;
-        case 0x1d: /* Esc */
-            if (win_focused_idx() >= 0) { Window *w = &windows[win_focused_idx()]; w->open = 0; w->focused = 0; }
-            return;
-        case 0x15: /* Tab */
-            /* cycle focused window */
-            int cur = win_focused_idx();
-            for (int i = 0; i < MAX_WINDOWS; i++) windows[i].focused = 0;
-            if (cur >= 0 && windows[cur].open) {
-                int n = cur + 1; while (n < MAX_WINDOWS && !windows[n].open) n++;
-                if (n < MAX_WINDOWS) windows[n].focused = 1;
-                else { /* wrap */ for (int j = 0; j < MAX_WINDOWS; j++) if (windows[j].open) { windows[j].focused = 1; break; } }
-            }
-            return;
-        default:
-            return;
+        case KEY_LEFT: dock_move(-1); return;
+        case KEY_RIGHT: dock_move(1); return;
+        case KEY_UP: dock_move(-1); return;
+        case KEY_DOWN: dock_move(1); return;
+        default: return;
     }
 }
 
-/* keyboard from evdev */
+#define INPUT_BITS(max_bit) (((max_bit) + 1 + (int)(sizeof(unsigned long) * 8) - 1) / (int)(sizeof(unsigned long) * 8))
+static int bit_is_set(const unsigned long *bits, unsigned bit) {
+    return (bits[bit / (sizeof(unsigned long) * 8)] >> (bit % (sizeof(unsigned long) * 8))) & 1UL;
+}
+
 static int keyboard_open(void) {
-    for (int i = 0; i < 16; i++) {
+    for (int i = 0; i < 32; i++) {
         char path[64];
         snprintf(path, sizeof(path), "/dev/input/event%d", i);
         int fd = open(path, O_RDONLY | O_NONBLOCK);
         if (fd < 0) continue;
-        /* check we have EV_KEY */
-        unsigned long mask[8] = {0};
-        if (ioctl(fd, 0x80044503 /* EVIOCGBIT(EV_KEY, len) */, mask) == 0) {
-            /* found an input device with keys */
-            return fd;
+        unsigned long evbits[INPUT_BITS(EV_MAX)] = {0};
+        unsigned long keybits[INPUT_BITS(KEY_MAX)] = {0};
+        if (ioctl(fd, EVIOCGBIT(0, sizeof(evbits)), evbits) < 0 || !bit_is_set(evbits, EV_KEY) ||
+            ioctl(fd, EVIOCGBIT(EV_KEY, sizeof(keybits)), keybits) < 0 ||
+            !bit_is_set(keybits, KEY_A) || !bit_is_set(keybits, KEY_ENTER)) {
+            close(fd);
+            continue;
         }
-        close(fd);
+        return fd;
     }
     return -1;
 }
 
-/* ---------------------------------------------------------------- */
+static int mouse_open(void) {
+    for (int i = 0; i < 32; i++) {
+        char path[64];
+        snprintf(path, sizeof(path), "/dev/input/event%d", i);
+        int fd = open(path, O_RDONLY | O_NONBLOCK);
+        if (fd < 0) continue;
+        unsigned long evbits[INPUT_BITS(EV_MAX)] = {0};
+        unsigned long relbits[INPUT_BITS(REL_MAX)] = {0};
+        unsigned long keybits[INPUT_BITS(KEY_MAX)] = {0};
+        if (ioctl(fd, EVIOCGBIT(0, sizeof(evbits)), evbits) < 0 ||
+            !bit_is_set(evbits, EV_REL) || !bit_is_set(evbits, EV_KEY) ||
+            ioctl(fd, EVIOCGBIT(EV_REL, sizeof(relbits)), relbits) < 0 ||
+            ioctl(fd, EVIOCGBIT(EV_KEY, sizeof(keybits)), keybits) < 0 ||
+            !bit_is_set(relbits, REL_X) || !bit_is_set(relbits, REL_Y) ||
+            !bit_is_set(keybits, BTN_LEFT)) {
+            close(fd);
+            continue;
+        }
+        return fd;
+    }
+    return -1;
+}
+
 /* Snapshot mode                                                    */
 /* ---------------------------------------------------------------- */
 static int run_snapshot(const char *png_path, int state) {
     Canvas *c = canvas_headless(800, 480);
     if (!c) { fprintf(stderr, "canvas init failed\n"); return 1; }
+    memset(windows, 0, sizeof(windows));
+    welcome_open = 0;
+    mouse_visible = 0;
+    start_open = 0;
+    start_query[0] = 0;
+    start_rebuild_filter();
     time_t t = time(NULL);
 
     if (state == 0) {
-        dock_index = 0;
+        dock_index = APP_TERMINAL;
         win_open(APP_TERMINAL, c);
-        term_push("QUADRA-OS terminal  ·  live shell (busybox ash)");
+        term_push("QUADRA-OS terminal - live shell (busybox ash)");
         term_push("$ uname -r");
         term_push("7.3.0");
         term_push("$ uname -m");
@@ -1064,20 +1588,22 @@ static int run_snapshot(const char *png_path, int state) {
         term_push("$ cat /etc/os-release");
         term_push("NAME=QUADRA-OS");
     } else if (state == 1) {
-        dock_index = 5; start_open = 1; start_sel = 5;
+        dock_index = 5; start_open = 1; start_sel = 0;
     } else if (state == 2) {
-        dock_index = 2; win_open(APP_TASKMGR, c);
+        dock_index = APP_TASKMGR; win_open(APP_TASKMGR, c);
     } else if (state == 3) {
-        dock_index = 3; win_open(APP_SETTINGS, c);
+        dock_index = APP_SETTINGS; win_open(APP_SETTINGS, c);
     } else if (state == 4) {
-        dock_index = 1; win_open(APP_FILES, c);
+        dock_index = APP_FILES; win_open(APP_FILES, c);
     } else if (state == 5) {
-        dock_index = 4; win_open(APP_ABOUT, c);
+        dock_index = APP_ABOUT; win_open(APP_ABOUT, c);
+    } else if (state == 6) {
+        welcome_open = 1;
     } else {
-        dock_index = 1;
+        dock_index = APP_FILES;
     }
 
-    render(c, t, 1);
+    render(c, t, settings_grid);
     int rc = canvas_write_png(c, png_path);
     canvas_free(c);
     if (rc == 0) fprintf(stderr, "snapshot -> %s\n", png_path);
@@ -1090,18 +1616,16 @@ static int run_snapshot(const char *png_path, int state) {
 /* ---------------------------------------------------------------- */
 static void usage(const char *argv0) {
     fprintf(stderr,
-        "quadra-desktop — QUADRA-OS framebuffer desktop\n\n"
+        "quadra-desktop — QUADRA-OS native framebuffer desktop\n\n"
         "Usage:\n"
-        "  %s                        Run the desktop on /dev/fb0\n"
-        "  %s --png OUT [STATE]      Render a static snapshot to OUT\n"
-        "                            0=Terminal (default) 1=Start 2=TaskMgr\n"
-        "                            3=Settings 4=Files 5=About 9=Idle\n"
-        "\nKeyboard (in fb mode):\n"
-        "  Arrows    navigate dock / start menu / files / settings scale\n"
-        "  Enter     open / activate\n"
-        "  Esc       close window / start menu\n"
-        "  Tab       cycle windows\n"
-        "  Terminal: type and Enter runs the command\n",
+        "  %s                        Run on /dev/fb0\n"
+        "  %s --png OUT [STATE]      Render a snapshot\n"
+        "                            0=Terminal 1=Launcher 2=TaskMgr\n"
+        "                            3=Settings 4=Files 5=About 6=Welcome\n"
+        "\nMouse: click dock/apps, drag title bars, use traffic-light controls\n"
+        "Keyboard: Windows key opens Launcher; Win+E opens Files\n"
+        "  Ctrl+Shift+Esc Task Manager | Alt+F4 close | arrows navigate\n"
+        "  Enter open | Esc close | Tab cycle windows | type to search\n",
         argv0, argv0);
 }
 
@@ -1132,31 +1656,65 @@ int main(int argc, char **argv) {
     }
 
     int kb = keyboard_open();
-    if (kb < 0) fprintf(stderr, "note: no input device found; desktop renders static\n");
+    int mouse = mouse_open();
+    if (mouse >= 0) {
+        mouse_visible = 1;
+        mouse_x = c->w / 2;
+        mouse_y = c->h / 2;
+    }
+    if (kb < 0 && mouse < 0)
+        fprintf(stderr, "note: no keyboard or mouse input device; desktop renders static\n");
+    else if (kb < 0)
+        fprintf(stderr, "note: no keyboard found; mouse input is available\n");
+    else if (mouse < 0)
+        fprintf(stderr, "note: no mouse found; use keyboard navigation\n");
 
+    int mod_shift = 0, mod_ctrl = 0, mod_alt = 0, mod_meta = 0;
     while (1) {
         time_t t = time(NULL);
         render(c, t, settings_grid);
         canvas_blit(c);
 
-        if (kb >= 0) {
-            fd_set rfds;
-            FD_ZERO(&rfds); FD_SET(kb, &rfds);
-            struct timeval tv = { 0, 50000 };
-            if (select(kb + 1, &rfds, NULL, NULL, &tv) > 0) {
-                struct input_event ev[8];
-                ssize_t n = read(kb, ev, sizeof(ev));
-                if (n > 0) {
-                    size_t m = (size_t)n / sizeof(struct input_event);
-                    for (size_t i = 0; i < m; i++) {
-                        if (ev[i].type != 0x01) continue; /* EV_KEY */
-                        if (ev[i].value != 1) continue;   /* press */
-                        int shift = (ev[i].code == 0x2a || ev[i].code == 0x36);
-                        handle_key(ev[i].code, shift);
+        fd_set rfds;
+        FD_ZERO(&rfds);
+        int maxfd = -1;
+        if (kb >= 0) { FD_SET(kb, &rfds); if (kb > maxfd) maxfd = kb; }
+        if (mouse >= 0) { FD_SET(mouse, &rfds); if (mouse > maxfd) maxfd = mouse; }
+        struct timeval tv = { 0, 50000 };
+        int ready = maxfd >= 0 ? select(maxfd + 1, &rfds, NULL, NULL, &tv) : 0;
+        if (ready > 0 && kb >= 0 && FD_ISSET(kb, &rfds)) {
+            struct input_event ev[16];
+            ssize_t n = read(kb, ev, sizeof(ev));
+            if (n > 0) {
+                size_t count = (size_t)n / sizeof(struct input_event);
+                for (size_t i = 0; i < count; i++) {
+                    if (ev[i].type != EV_KEY) continue;
+                    int down = ev[i].value != 0;
+                    if (ev[i].code == KEY_LEFTSHIFT || ev[i].code == KEY_RIGHTSHIFT) { mod_shift = down; continue; }
+                    if (ev[i].code == KEY_LEFTCTRL || ev[i].code == KEY_RIGHTCTRL) { mod_ctrl = down; continue; }
+                    if (ev[i].code == KEY_LEFTALT || ev[i].code == KEY_RIGHTALT) { mod_alt = down; continue; }
+                    if (ev[i].code == KEY_LEFTMETA || ev[i].code == KEY_RIGHTMETA) mod_meta = down;
+                    if (ev[i].value == 1)
+                        handle_key(c, ev[i].code, mod_shift, mod_ctrl, mod_alt, mod_meta);
+                }
+            }
+        }
+        if (ready > 0 && mouse >= 0 && FD_ISSET(mouse, &rfds)) {
+            struct input_event ev[16];
+            ssize_t n = read(mouse, ev, sizeof(ev));
+            if (n > 0) {
+                size_t count = (size_t)n / sizeof(struct input_event);
+                for (size_t i = 0; i < count; i++) {
+                    if (ev[i].type == EV_REL) {
+                        if (ev[i].code == REL_X) mouse_move(c, ev[i].value, 0);
+                        else if (ev[i].code == REL_Y) mouse_move(c, 0, ev[i].value);
+                    } else if (ev[i].type == EV_KEY && ev[i].code == BTN_LEFT && ev[i].value != 2) {
+                        mouse_button(c, ev[i].value == 1);
                     }
                 }
             }
-        } else {
+        }
+        if (ready == 0 && maxfd < 0) {
             struct timespec ts = { 0, 100000000 };
             nanosleep(&ts, NULL);
         }
@@ -1164,5 +1722,6 @@ int main(int argc, char **argv) {
 
     canvas_free(c);
     if (kb >= 0) close(kb);
+    if (mouse >= 0) close(mouse);
     return 0;
 }

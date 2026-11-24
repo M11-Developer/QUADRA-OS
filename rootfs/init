@@ -1,4 +1,9 @@
 #!/bin/sh
+# All Credits go to : M-Eleven — Mohamed El-Sayed Abdelfatah
+# YouTube: https://www.youtube.com/@M11-Dev    GitHub: https://github.com/M11-Developer
+# Mail: ma7292537@gmail.com                    TikTok: https://www.tiktok.com/@m11_dev
+# WhatsApp: @m11dev    ·    QUADRA-OS is MIT licensed — see LICENSE / CREDITS.md
+
 # /init — QUADRA-OS boot init (initramfs)
 # Mounts pseudo-filesystems, then starts the QUADRA-OS framebuffer desktop.
 # Falls back to a root shell if the desktop cannot start.
@@ -14,11 +19,16 @@ mount -t proc proc /proc 2>/dev/null
 mount -t sysfs sysfs /sys 2>/dev/null
 mount -t tmpfs tmpfs /tmp 2>/dev/null
 
+# Familiar home folders for people moving from Windows.
+mkdir -p /root/Desktop /root/Documents /root/Downloads /root/Pictures /root/Music 2>/dev/null
+
 # Set hostname
 hostname "$(cat /etc/hostname 2>/dev/null || echo quadra-os)" 2>/dev/null
 
 # Quick console banner (visible in the boot log, harmless in fb mode)
 echo "=== QUADRA-OS v1.0 ==="
+echo "All Credits go to : M-Eleven - Mohamed El-Sayed Abdelfatah"
+echo "https://github.com/M11-Developer  |  MIT licensed"
 cat /etc/motd 2>/dev/null
 
 # If a framebuffer device exists, hand over to the desktop.

@@ -12,3 +12,11 @@ dist/initramfs.cpio.gz
 # OS junk
 .DS_Store
 Thumbs.db
+
+# Release artifacts (distributed via GitHub Releases, not the repo)
+dist/QUADRA-OS.iso
+dist/QUADRA-OS-*.zip
+dist/release-*/
+
+# Generated checksum manifests (produced by tools/release-build.sh)
+CHECKSUMS.txt

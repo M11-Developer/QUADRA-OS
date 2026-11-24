@@ -1,0 +1,18 @@
+name: Attribution guard
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  credits:
+    name: Verify M-Eleven credits are intact
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run attribution check
+        run: sh tools/verify-credits.sh

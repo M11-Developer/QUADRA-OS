@@ -1,5 +1,9 @@
 # QUADRA-OS — Reference & Requirement Matrix
 
+> **All Credits go to : M-Eleven — Mohamed El-Sayed Abdelfatah**  
+> <https://github.com/M11-Developer> · <https://www.youtube.com/@M11-Dev> · <ma7292537@gmail.com>  
+> TikTok <https://www.tiktok.com/@m11_dev> · WhatsApp @m11dev — MIT, see `LICENSE` / `CREDITS.md`.
+
 **Date:** 2026-11-22
 **Branch:** `arena/db69c6e7-quadra-os`
 **Status:** Reference doc — not a commit-locked design. Built from the FlowOS reference video, the FlowOS website, and the machine reality in this sandbox.
