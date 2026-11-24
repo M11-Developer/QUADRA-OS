@@ -174,14 +174,31 @@ jobs:
         run: |
           set +e
           mkdir -p build/preview
-          ( sleep 30; echo 'screendump /tmp/screen.ppm'; sleep 3; echo 'quit' ) | \
-            timeout 90 qemu-system-x86_64 -kernel dist/bzImage -initrd dist/initramfs.cpio.gz \
-              -append "console=tty0" -display none -vga std -m 512 \
-              -monitor stdio -serial null -no-reboot -d guest_errors -D qemu-debug.log
-          ls -l /tmp/screen.ppm qemu-debug.log 2>/dev/null
-          tail -20 qemu-debug.log 2>/dev/null
+          echo "qemu: $(qemu-system-x86_64 --version | head -1)"
+          rm -f /tmp/screen.ppm mon.sock
+          qemu-system-x86_64 -kernel dist/bzImage -initrd dist/initramfs.cpio.gz \
+            -append "console=tty0" -display none -vga std -m 512 \
+            -monitor unix:mon.sock,server,nowait -serial file:serial-vga.log \
+            -no-reboot -d int,cpu_reset,guest_errors -D qemu-debug.log \
+            > qemu-probe.log 2>&1 &
+          QPID=$!
+          sleep 35
+          if [ -S mon.sock ]; then
+            printf 'screendump /tmp/screen.ppm\n' | socat - UNIX-CONNECT:mon.sock
+            sleep 3
+            printf 'info registers\n' | socat - UNIX-CONNECT:mon.sock > monitor-regs.log
+            printf 'quit\n' | socat - UNIX-CONNECT:mon.sock
+          else
+            echo "monitor socket never appeared - QEMU exited early"
+          fi
+          wait $QPID
+          echo "probe exit: $?"
+          ls -l /tmp/screen.ppm serial-vga.log qemu-debug.log 2>/dev/null
+          tail -15 qemu-probe.log
+          tail -30 monitor-regs.log 2>/dev/null
           if [ -f /tmp/screen.ppm ]; then
             convert /tmp/screen.ppm build/preview/qemu-boot.png && echo "screendump saved"
+            tail -c 2000 serial-vga.log | cat -v
           fi
 
       - name: Boot test — kernel + initramfs (serial console)
@@ -238,7 +255,8 @@ jobs:
           tail -400 ci.log > ci-logs/last.log 2>/dev/null || true
           grep -E "^CONFIG_(FB|FB_CORE|FB_VESA|DEVTMPFS|DEVTMPFS_MOUNT|BLK_DEV_INITRD|RD_GZIP|EFI_STUB|FRAMEBUFFER_CONSOLE|MODULES)" \
             linux-src/.config > ci-logs/kernel-config.txt 2>/dev/null || true
-          cp boot-direct.log boot-iso.log serial.log host-boot.log qemu-debug.log ci-logs/ 2>/dev/null || true
+          cp boot-direct.log boot-iso.log serial.log serial-vga.log host-boot.log \
+             qemu-debug.log qemu-probe.log monitor-regs.log ci-logs/ 2>/dev/null || true
           cp build/preview/qemu-boot.png ci-logs/ 2>/dev/null || true
           cd ci-logs
           git init -q -b ci-logs .
