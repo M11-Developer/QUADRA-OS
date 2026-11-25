@@ -1,0 +1,18 @@
+QUADRA-OS — credits and license
+===============================
+
+All Credits go to : M-Eleven
+Mohamed El-Sayed Abdelfatah
+
+  YouTube : https://www.youtube.com/@M11-Dev
+  GitHub  : https://github.com/M11-Developer
+  Mail    : ma7292537@gmail.com
+  TikTok  : https://www.tiktok.com/@m11_dev
+  WhatsApp: @m11dev
+
+QUADRA-authored code and artwork are MIT licensed (see /usr/share/doc/quadra-os/LICENSE
+in release images, or the LICENSE file in the source tree). Keep this notice and
+CREDITS.md in every copy. Third-party components (Linux kernel, BusyBox) stay under
+their own upstream licenses — see THIRD-PARTY-NOTICES.md.
+
+The license notice for the complete source tree is in CREDITS.md and LICENSE.

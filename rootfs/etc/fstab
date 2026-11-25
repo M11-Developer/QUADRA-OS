@@ -1,0 +1,7 @@
+# QUADRA-OS initial filesystem table.
+# No persistent root; initramfs variant. /dev is devtmpfs.
+#
+# /dev           devtmpfs   devtmpfs  rw,nosuid,relatime,size=65536k  0 0
+# /proc          proc       proc      rw,nosuid,nodev,noexec  0 0
+# /sys           sysfs      sysfs     rw,nosuid,nodev,noexec  0 0
+# /tmp           tmpfs      tmpfs     rw,nosuid,nodev,relatime  0 0

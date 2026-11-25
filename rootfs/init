@@ -1,0 +1,49 @@
+#!/bin/sh
+# All Credits go to : M-Eleven — Mohamed El-Sayed Abdelfatah
+# YouTube: https://www.youtube.com/@M11-Dev    GitHub: https://github.com/M11-Developer
+# Mail: ma7292537@gmail.com                    TikTok: https://www.tiktok.com/@m11_dev
+# WhatsApp: @m11dev    ·    QUADRA-OS is MIT licensed — see LICENSE / CREDITS.md
+
+# /init — QUADRA-OS boot init (initramfs)
+# Mounts pseudo-filesystems, then starts the QUADRA-OS framebuffer desktop.
+# Falls back to a root shell if the desktop cannot start.
+
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin
+export TERM=linux
+export HOME=/root
+export PS1='QUADRA-OS:\$ '
+
+# Mount pseudo-filesystems (kernel auto-mounts devtmpfs at /dev thanks to
+# CONFIG_DEVTMPFS_MOUNT=y)
+mount -t proc proc /proc 2>/dev/null
+mount -t sysfs sysfs /sys 2>/dev/null
+mount -t tmpfs tmpfs /tmp 2>/dev/null
+
+# Familiar home folders for people moving from Windows.
+mkdir -p /root/Desktop /root/Documents /root/Downloads /root/Pictures /root/Music 2>/dev/null
+
+# Set hostname
+hostname "$(cat /etc/hostname 2>/dev/null || echo quadra-os)" 2>/dev/null
+
+# Quick console banner (visible in the boot log, harmless in fb mode)
+echo "=== QUADRA-OS v1.0 ==="
+echo "All Credits go to : M-Eleven - Mohamed El-Sayed Abdelfatah"
+echo "https://github.com/M11-Developer  |  MIT licensed"
+cat /etc/motd 2>/dev/null
+
+# If a framebuffer device exists, hand over to the desktop.
+# (quadra-desktop renders the wallpaper, top bar, dock, windows.)
+if [ -c /dev/fb0 ]; then
+    echo "QUADRA-OS: framebuffer found - starting the desktop"
+    /bin/quadra-desktop
+    echo "QUADRA-OS: desktop session ended ($?) - falling back to the console"
+fi
+
+# Fallback: interactive root shell
+cat /etc/motd 2>/dev/null
+echo
+echo "== Console =="
+echo "  tty1: QUADRA-OS root shell"
+echo "  Try:  ls /etc   free -h   df -h   uname -a   dmesg"
+echo
+exec /bin/setsid /bin/cttyhack /bin/sh -l

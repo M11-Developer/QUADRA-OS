@@ -1,0 +1,328 @@
+name: Build QUADRA-OS image
+
+# Builds the real artefacts — Linux kernel, initramfs, desktop shell and a
+# bootable GRUB ISO — then boots them under QEMU so the build proves itself.
+#
+# All Credits go to : M-Eleven — Mohamed El-Sayed Abdelfatah
+# https://github.com/M11-Developer  ·  MIT (see LICENSE / CREDITS.md)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  KERNEL_TAG: v7.3
+
+jobs:
+  build:
+    name: Kernel + initramfs + bootable ISO
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential bc bison flex libssl-dev libelf-dev cpio \
+            qemu-system-x86 xorriso grub-pc-bin grub-efi-amd64-bin mtools \
+            dosfstools file imagemagick socat ovmf
+
+      - name: Attribution check
+        run: sh tools/verify-credits.sh
+
+      - name: Build the desktop shell (static)
+        run: |
+          gcc -O2 -static -Wall -Wextra -o desktop/quadra-desktop desktop/quadra-desktop.c -lm
+          cp desktop/quadra-desktop rootfs/bin/quadra-desktop
+          ./desktop/quadra-desktop --png build/preview/ci-desktop.png 0 | tail -1
+
+      - name: Cache Linux source
+        uses: actions/cache@v4
+        with:
+          path: linux-src
+          key: linux-src-${{ env.KERNEL_TAG }}
+
+      - name: Fetch Linux ${{ env.KERNEL_TAG }}
+        run: |
+          if [ ! -f linux-src/Makefile ]; then
+            curl -fsSL --retry 3 "https://codeload.github.com/torvalds/linux/tar.gz/refs/tags/${KERNEL_TAG}" -o linux.tar.gz
+            mkdir -p linux-src
+            tar xzf linux.tar.gz -C linux-src --strip-components=1
+          fi
+          head -5 linux-src/Makefile
+
+      - name: Configure the kernel
+        run: |
+          set -o pipefail
+          exec > >(tee -a ci.log) 2>&1
+          set -x
+          cd linux-src
+          make defconfig
+
+          # Framebuffer desktop, initramfs, devtmpfs, EFI-stub boot.
+          for opt in \
+            DEVTMPFS DEVTMPFS_MOUNT BLK_DEV_INITRD RD_GZIP \
+            FB FB_CORE FB_VESA FRAMEBUFFER_CONSOLE VT VT_CONSOLE \
+            INPUT INPUT_EVDEV INPUT_KEYBOARD INPUT_MOUSE \
+            KEYBOARD_ATKBD MOUSE_PS2 \
+            EFI EFI_STUB EFI_PARTITION \
+            TMPFS PROC_FS SYSFS UNIX SHMEM \
+            SERIAL_CORE SERIAL_CORE_CONSOLE SERIAL_8250 SERIAL_8250_CONSOLE TTY \
+            PRINTK VGA_CONSOLE VT_CONSOLE \
+            DRM DRM_SIMPLEDRM DRM_FBDEV_EMULATION SYSFB SYSFB_SIMPLEFB \
+            FB_EFI FB_VESA \
+            BINFMT_ELF; do
+            scripts/config --file .config -e "$opt" || echo "note: no $opt in this kernel"
+          done
+          scripts/config --file .config -d MODULES || true
+          make olddefconfig
+
+          echo "--- serial/tty options ---"
+          grep -E "SERIAL|TTY|CONSOLE|PRINTK" .config | head -40 || true
+
+          echo "--- resolved boot options ---"
+          for opt in CONFIG_FB CONFIG_FB_CORE CONFIG_FB_VESA CONFIG_FRAMEBUFFER_CONSOLE \
+                     CONFIG_DEVTMPFS CONFIG_DEVTMPFS_MOUNT CONFIG_BLK_DEV_INITRD \
+                     CONFIG_RD_GZIP CONFIG_EFI_STUB CONFIG_SERIAL_8250_CONSOLE; do
+            grep -E "^${opt}=" .config || echo "WARNING: ${opt} not set"
+          done
+          if grep -q "^CONFIG_MODULES=y" .config; then echo "WARNING: modules still on"; fi
+
+          missing=0
+          for req in CONFIG_SERIAL_8250=y CONFIG_SERIAL_8250_CONSOLE=y \
+                     CONFIG_FB_VESA=y CONFIG_DEVTMPFS_MOUNT=y CONFIG_BLK_DEV_INITRD=y \
+                     CONFIG_TTY=y CONFIG_PRINTK=y CONFIG_FB_EFI=y; do
+            if ! grep -qx "$req" .config; then
+              echo "::error title=Kernel config::$req is missing - the image would boot blind"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then exit 1; fi
+
+      - name: Build the kernel
+        run: |
+          set -o pipefail
+          exec > >(tee -a ci.log) 2>&1
+          cd linux-src
+          make -j"$(nproc)" bzImage
+          mkdir -p ../dist
+          cp arch/x86/boot/bzImage ../dist/bzImage
+          ls -lh ../dist/bzImage
+          file ../dist/bzImage || true
+          grep -E "^CONFIG_(64BIT|X86_64|X86_5LEVEL|RANDOMIZE_BASE|PHYSICAL_START|KERNEL_GZIP)=" .config || true
+
+      - name: Build the initramfs
+        run: |
+          cd rootfs
+          find . -name .gitkeep -delete
+          find . -print0 | cpio --null -ov --format=newc --owner=0:0 2>/dev/null | gzip -9 > ../dist/initramfs.cpio.gz
+          cd ..
+          ls -lh dist/initramfs.cpio.gz
+
+      - name: Build the bootable ISO (GRUB, BIOS + UEFI)
+        run: |
+          rm -rf isodir
+          mkdir -p isodir/boot/grub isodir/boot/quadra-os
+          cp dist/bzImage isodir/boot/quadra-os/vmlinuz
+          cp dist/initramfs.cpio.gz isodir/boot/quadra-os/initramfs.cpio.gz
+          cp CREDITS.md LICENSE THIRD-PARTY-NOTICES.md isodir/boot/quadra-os/
+          cat > isodir/boot/grub/grub.cfg <<'EOF'
+          set default=0
+          set timeout=3
+          # ask the firmware for a real linear framebuffer so the desktop gets /dev/fb0
+          set gfxmode=1024x768x32,800x600x32,auto
+          set gfxpayload=keep
+          insmod all_video
+          menuentry "QUADRA-OS 1.0" {
+              set gfxpayload=1024x768x32
+              linux /boot/quadra-os/vmlinuz root=/dev/ram0 video=1024x768 console=tty0 console=ttyS0 quiet
+              initrd /boot/quadra-os/initramfs.cpio.gz
+          }
+          menuentry "QUADRA-OS 1.0 (verbose boot)" {
+              linux /boot/quadra-os/vmlinuz root=/dev/ram0 console=tty0 console=ttyS0
+              initrd /boot/quadra-os/initramfs.cpio.gz
+          }
+          EOF
+          grub-mkrescue -o dist/QUADRA-OS.iso isodir -- -volid QUADRA_OS 2>&1 | tail -5
+          ls -lh dist/QUADRA-OS.iso
+          file dist/QUADRA-OS.iso
+
+      - name: Serial console sanity check
+        run: |
+          set +e
+          echo "--- host kernel, same QEMU invocation ---"
+          HOST_KERNEL=$(ls /boot/vmlinuz-* 2>/dev/null | head -1)
+          if [ -n "$HOST_KERNEL" ]; then
+            timeout 60 qemu-system-x86_64 -cpu max -kernel "$HOST_KERNEL" \
+              -append "console=ttyS0 ignore_loglevel" -m 512 -nographic -no-reboot \
+              < /dev/null > host-boot.log 2>&1
+            head -15 host-boot.log
+            grep -aq "Linux version" host-boot.log && echo "HOST SERIAL OK" || echo "HOST SERIAL SILENT"
+          else
+            echo "no host kernel available for the sanity check"
+          fi
+
+          echo "--- QUADRA kernel, serial written to a file ---"
+          # keep stdin open: QEMU quits when a stdio chardev hits EOF
+          ( sleep 45 ) | timeout 60 qemu-system-x86_64 -cpu max -kernel dist/bzImage \
+            -append "console=ttyS0,115200 earlyprintk=serial ignore_loglevel" \
+            -display none -serial file:serial.log -monitor none -m 512 -no-reboot
+          echo "serial.log bytes: $(wc -c < serial.log)"
+          head -30 serial.log
+
+      - name: Desktop screendump probe (boots the ISO)
+        run: |
+          set +e
+          mkdir -p build/preview
+          rm -f /tmp/screen.ppm mon.sock serial-probe.log
+          qemu-system-x86_64 -cpu max -m 512 -cdrom dist/QUADRA-OS.iso \
+            -display none -vga std \
+            -monitor unix:mon.sock,server,nowait -serial file:serial-probe.log \
+            -no-reboot -d guest_errors -D qemu-debug.log > qemu-probe.log 2>&1 &
+          QPID=$!
+          sleep 45
+          if [ -S mon.sock ]; then
+            printf 'screendump /tmp/screen.ppm\n' | socat - UNIX-CONNECT:mon.sock
+            sleep 3
+            printf 'info registers\n' | socat - UNIX-CONNECT:mon.sock > monitor-regs.log
+            printf 'quit\n' | socat - UNIX-CONNECT:mon.sock
+          else
+            echo "monitor socket never appeared - QEMU exited early"
+          fi
+          wait $QPID
+          ls -l /tmp/screen.ppm 2>/dev/null
+          echo "--- serial (probe) ---"
+          tail -c 1500 serial-probe.log | cat -v
+          if [ -f /tmp/screen.ppm ]; then
+            convert /tmp/screen.ppm build/preview/qemu-desktop.png && echo "screendump saved"
+            identify build/preview/qemu-desktop.png
+          fi
+
+      - name: UEFI desktop probe (OVMF firmware)
+        run: |
+          set +e
+          mkdir -p build/preview
+          OVMF_CODE=$(ls /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd 2>/dev/null | head -1)
+          OVMF_VARS=$(ls /usr/share/OVMF/OVMF_VARS_4M.fd /usr/share/OVMF/OVMF_VARS.fd 2>/dev/null | head -1)
+          echo "OVMF code: $OVMF_CODE"
+          echo "OVMF vars: $OVMF_VARS"
+          rm -f /tmp/uefi.ppm uefi-mon.sock /tmp/OVMF_VARS.fd
+          if [ -n "$OVMF_CODE" ] && [ -n "$OVMF_VARS" ]; then
+            cp "$OVMF_VARS" /tmp/OVMF_VARS.fd
+            ( sleep 75; echo quit ) | qemu-system-x86_64 -cpu max -m 1024 -cdrom dist/QUADRA-OS.iso \
+              -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
+              -drive if=pflash,format=raw,file=/tmp/OVMF_VARS.fd \
+              -display none -vga std \
+              -monitor unix:uefi-mon.sock,server,nowait -serial file:serial-uefi.log \
+              -no-reboot > qemu-uefi.log 2>&1 &
+            QPID=$!
+            sleep 70
+            if [ -S uefi-mon.sock ]; then
+              printf 'screendump /tmp/uefi.ppm\n' | socat - UNIX-CONNECT:uefi-mon.sock
+              sleep 3
+              printf 'quit\n' | socat - UNIX-CONNECT:uefi-mon.sock
+            else
+              echo "uefi monitor socket never appeared"
+            fi
+            wait $QPID
+            echo "--- serial (UEFI) ---"
+            tail -c 1500 serial-uefi.log | cat -v
+            if [ -f /tmp/uefi.ppm ]; then
+              convert /tmp/uefi.ppm build/preview/qemu-uefi-desktop.png && identify build/preview/qemu-uefi-desktop.png
+            fi
+          else
+            echo "OVMF firmware/vars not found on the runner"
+          fi
+
+      - name: Boot test — kernel + initramfs (serial console)
+        run: |
+          set +e
+          # stdin stays open for the whole run (a stdio EOF makes QEMU quit)
+          ( sleep 20; printf 'uname -a\ncat /etc/quadra-os/credits\nexit\n'; sleep 90 ) | \
+            timeout 150 qemu-system-x86_64 -cpu max -machine pc \
+              -kernel dist/bzImage -initrd dist/initramfs.cpio.gz \
+              -append "console=ttyS0,115200 earlyprintk=serial,ttyS0,115200 ignore_loglevel panic=1" \
+              -m 512 -nographic -monitor none -no-reboot \
+              > boot-direct.log 2>&1
+          grep -aq "QUADRA-OS" boot-direct.log && echo "BOOT OK: QUADRA-OS banner seen"
+          tail -40 boot-direct.log
+
+      - name: Boot test — bootable ISO (BIOS/GRUB)
+        run: |
+          set +e
+          ( sleep 25; printf 'uname -a\nexit\n'; sleep 150 ) | \
+            timeout 210 qemu-system-x86_64 -cpu max \
+              -cdrom dist/QUADRA-OS.iso -m 512 -nographic -monitor none -no-reboot \
+              > boot-iso.log 2>&1
+          grep -aq "QUADRA-OS" boot-iso.log && echo "ISO BOOT OK: QUADRA-OS banner seen"
+          tail -40 boot-iso.log
+
+      - name: Verify the boot logs
+        run: |
+          sh tools/verify-credits.sh
+          grep -aq "QUADRA-OS" boot-direct.log || { echo "direct boot failed"; exit 1; }
+          grep -aq "QUADRA-OS" boot-iso.log || { echo "ISO boot failed"; exit 1; }
+          echo "Both boot paths reached the QUADRA-OS init."
+
+      - name: Checksums
+        run: |
+          ( cd dist && sha256sum bzImage initramfs.cpio.gz QUADRA-OS.iso > SHA256SUMS.txt && cat SHA256SUMS.txt )
+
+      - name: Upload artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: QUADRA-OS-image
+          path: |
+            dist/bzImage
+            dist/initramfs.cpio.gz
+            dist/QUADRA-OS.iso
+            dist/SHA256SUMS.txt
+            boot-direct.log
+            boot-iso.log
+            build/preview/ci-desktop.png
+
+      - name: Publish build evidence
+        if: always()
+        run: |
+          mkdir -p ci-logs
+          tail -400 ci.log > ci-logs/last.log 2>/dev/null || true
+          grep -E "^CONFIG_(FB|FB_CORE|FB_VESA|DEVTMPFS|DEVTMPFS_MOUNT|BLK_DEV_INITRD|RD_GZIP|EFI_STUB|FRAMEBUFFER_CONSOLE|MODULES)" \
+            linux-src/.config > ci-logs/kernel-config.txt 2>/dev/null || true
+          cp boot-direct.log boot-iso.log serial.log serial-probe.log serial-uefi.log qemu-uefi.log host-boot.log \
+             qemu-debug.log qemu-probe.log monitor-regs.log ci-logs/ 2>/dev/null || true
+          cp build/preview/qemu-desktop.png ci-logs/ 2>/dev/null || true
+          cp build/preview/qemu-uefi-desktop.png ci-logs/ 2>/dev/null || true
+          cd ci-logs
+          git init -q -b ci-logs .
+          git add -A
+          git -c user.name="M-Eleven CI" -c user.email="ma7292537@gmail.com" \
+            commit -q -m "CI diagnostics for run $GITHUB_RUN_ID" || true
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" HEAD:ci-logs
+          echo "evidence pushed to the ci-logs branch"
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: QUADRA-OS ${{ github.ref_name }}
+          body: |
+            QUADRA-OS ${{ github.ref_name }} — real Linux 7.3 kernel + framebuffer desktop.
+
+            **All Credits go to : M-Eleven — Mohamed El-Sayed Abdelfatah**
+            https://github.com/M11-Developer · https://www.youtube.com/@M11-Dev · ma7292537@gmail.com
+            TikTok https://www.tiktok.com/@m11_dev · WhatsApp @m11dev
+
+            Boot-tested in CI with QEMU (direct kernel+initramfs and the GRUB ISO).
+            MIT for QUADRA material; the kernel and BusyBox stay GPL-2.0.
+          files: |
+            dist/bzImage
+            dist/initramfs.cpio.gz
+            dist/QUADRA-OS.iso
+            dist/SHA256SUMS.txt

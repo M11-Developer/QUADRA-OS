@@ -1,6 +1,9 @@
 MIT License
 
-Copyright (c) 2026 Mohamed
+Copyright (c) 2026 Mohamed El-Sayed Abdelfatah (M-Eleven)
+All Credits go to : M-Eleven  ·  https://github.com/M11-Developer
+Contact: ma7292537@gmail.com  ·  YouTube: https://www.youtube.com/@M11-Dev
+TikTok: https://www.tiktok.com/@m11_dev  ·  WhatsApp: @m11dev
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +22,19 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---------------------------------------------------------------------------
+Scope of this MIT license
+---------------------------------------------------------------------------
+This license covers the QUADRA-authored material in this repository: the
+framebuffer desktop shell (desktop/quadra-desktop.c), the initramfs init
+script (rootfs/init), the installers (installer/), the build tools (tools/),
+the brand artwork (assets/brand/, rootfs/usr/share/quadra-os/brand/) and the
+documentation.
+
+Third-party components bundled with QUADRA-OS keep their own upstream
+licenses: the Linux kernel (GPL-2.0) and BusyBox (GPL-2.0). The 8x8 bitmap
+font in desktop/font8x8.h is public domain. See THIRD-PARTY-NOTICES.md.
+
+If you copy, fork or redistribute QUADRA-OS, you must keep this copyright
+notice, this permission notice and CREDITS.md.
